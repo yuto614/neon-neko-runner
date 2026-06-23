@@ -20,7 +20,7 @@ const player = {
 };
 
 const obstacle = {
-  x: 800,
+  x: 750,
   y: 370,
   width: 30,
   height: 40,
@@ -32,15 +32,52 @@ const JUMP_STRENGTH = -12;
 const OBSTACLE_SPEED = 4;
 const groundY = ground.y - player.height;
 
+let gameOver = false;
+let score = 0;
+
+function isColliding(a, b) {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+function resetGame() {
+  player.x = 60;
+  player.y = groundY;
+  player.vy = 0;
+  player.isJumping = false;
+
+  obstacle.x = 750;
+
+  gameOver = false;
+  score = 0;
+}
+
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && !player.isJumping) {
-    e.preventDefault();
+  if (e.code !== 'Space') {
+    return;
+  }
+  e.preventDefault();
+
+  if (gameOver) {
+    resetGame();
+    return;
+  }
+
+  if (!player.isJumping) {
     player.vy = JUMP_STRENGTH;
     player.isJumping = true;
   }
 });
 
 function update() {
+  if (gameOver) {
+    return;
+  }
+
   player.vy += GRAVITY;
   player.y += player.vy;
 
@@ -54,6 +91,13 @@ function update() {
   if (obstacle.x + obstacle.width < 0) {
     obstacle.x = canvas.width;
   }
+
+  if (isColliding(player, obstacle)) {
+    gameOver = true;
+    return;
+  }
+
+  score += 1;
 }
 
 function render() {
@@ -68,6 +112,17 @@ function render() {
 
   ctx.fillStyle = player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '20px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Score: ' + score, 10, 30);
+
+  if (gameOver) {
+    ctx.font = '32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width / 2, 60);
+  }
 }
 
 function loop() {
