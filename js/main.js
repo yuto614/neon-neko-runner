@@ -19,8 +19,17 @@ const player = {
   isJumping: false,
 };
 
+const obstacle = {
+  x: 800,
+  y: 370,
+  width: 30,
+  height: 40,
+  color: '#c0392b',
+};
+
 const GRAVITY = 0.6;
 const JUMP_STRENGTH = -12;
+const OBSTACLE_SPEED = 4;
 const groundY = ground.y - player.height;
 
 window.addEventListener('keydown', (e) => {
@@ -40,6 +49,11 @@ function update() {
     player.vy = 0;
     player.isJumping = false;
   }
+
+  obstacle.x -= OBSTACLE_SPEED;
+  if (obstacle.x + obstacle.width < 0) {
+    obstacle.x = canvas.width;
+  }
 }
 
 function render() {
@@ -48,6 +62,9 @@ function render() {
 
   ctx.fillStyle = ground.color;
   ctx.fillRect(ground.x, ground.y, ground.width, ground.height);
+
+  ctx.fillStyle = obstacle.color;
+  ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
 
   ctx.fillStyle = player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
