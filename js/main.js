@@ -15,9 +15,31 @@ const player = {
   width: 40,
   height: 40,
   color: '#f5a623',
+  vy: 0,
+  isJumping: false,
 };
 
+const GRAVITY = 0.6;
+const JUMP_STRENGTH = -12;
+const groundY = ground.y - player.height;
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !player.isJumping) {
+    e.preventDefault();
+    player.vy = JUMP_STRENGTH;
+    player.isJumping = true;
+  }
+});
+
 function update() {
+  player.vy += GRAVITY;
+  player.y += player.vy;
+
+  if (player.y >= groundY) {
+    player.y = groundY;
+    player.vy = 0;
+    player.isJumping = false;
+  }
 }
 
 function render() {
