@@ -64,6 +64,10 @@ const LANDING_PARTICLE_COUNT = 5;
 const LANDING_PARTICLE_LIFETIME = 12;
 const LEVEL_UP_DURATION = 60;
 const GAME_OVER_FLASH_DURATION = 10;
+const BLINK_MIN_INTERVAL = 180;
+const BLINK_MAX_INTERVAL = 300;
+const BLINK_DURATION = 6;
+const HAPPY_DURATION = 20;
 
 const moon = {
   x: canvas.width - 90,
@@ -102,6 +106,7 @@ function makeBuilding() {
     width: randomRange(30, 70),
     height: randomRange(40, 120),
     color: '#140a26',
+    seed: Math.random() * Math.PI * 2,
   };
 }
 
@@ -122,6 +127,10 @@ let particles = [];
 let shootingStars = [];
 let levelUpTimer = 0;
 let gameOverFlashTimer = 0;
+let isBlinking = false;
+let blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
+let blinkDuration = 0;
+let happyTimer = 0;
 
 function randomizeObstacle() {
   obstacle.width = Math.round(randomRange(OBSTACLE_MIN_WIDTH, OBSTACLE_MAX_WIDTH));
@@ -156,7 +165,7 @@ function spawnLandingParticles() {
       vy: randomRange(-0.5, 0),
       life: LANDING_PARTICLE_LIFETIME,
       maxLife: LANDING_PARTICLE_LIFETIME,
-      color: COLOR_WHITE,
+      color: COLOR_CYAN,
     });
   }
 }
@@ -193,6 +202,10 @@ function startGame() {
   shootingStars.length = 0;
   levelUpTimer = 0;
   gameOverFlashTimer = 0;
+  isBlinking = false;
+  blinkDuration = 0;
+  blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
+  happyTimer = 0;
   gameState = 'playing';
 }
 
@@ -238,6 +251,24 @@ function update() {
     player.isJumping = false;
     if (wasJumping) {
       spawnLandingParticles();
+      happyTimer = HAPPY_DURATION;
+    }
+  }
+
+  if (happyTimer > 0) {
+    happyTimer -= 1;
+  }
+
+  blinkTimer -= 1;
+  if (blinkTimer <= 0) {
+    isBlinking = true;
+    blinkDuration = BLINK_DURATION;
+    blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
+  }
+  if (isBlinking) {
+    blinkDuration -= 1;
+    if (blinkDuration <= 0) {
+      isBlinking = false;
     }
   }
 
@@ -338,9 +369,11 @@ function drawShootingStars() {
 }
 
 function drawMoon() {
+  const baseBlur = level >= 5 ? 38 : 25;
+  const pulse = Math.sin(performance.now() / 500) * 4;
   ctx.save();
   ctx.shadowColor = moon.color;
-  ctx.shadowBlur = level >= 5 ? 38 : 25;
+  ctx.shadowBlur = baseBlur + pulse;
   ctx.fillStyle = moon.color;
   ctx.beginPath();
   ctx.arc(moon.x, moon.y, moon.radius, 0, Math.PI * 2);
@@ -367,6 +400,7 @@ function drawCity() {
   if (level < 4) {
     return;
   }
+  const time = performance.now();
   buildings.forEach((b) => {
     ctx.fillStyle = b.color;
     ctx.fillRect(b.x, HORIZON_Y - b.height, b.width, b.height);
@@ -375,8 +409,12 @@ function drawCity() {
     const windowRows = Math.floor(b.height / 18);
     for (let row = 0; row < windowRows; row++) {
       const y = HORIZON_Y - b.height + 8 + row * 18;
-      ctx.fillRect(b.x + 6, y, 4, 4);
-      ctx.fillRect(b.x + b.width - 10, y, 4, 4);
+      if (Math.sin(time / 600 + b.seed + row) > 0.1) {
+        ctx.fillRect(b.x + 6, y, 4, 4);
+      }
+      if (Math.sin(time / 600 + b.seed + row * 1.7 + 1) > 0.1) {
+        ctx.fillRect(b.x + b.width - 10, y, 4, 4);
+      }
     }
   });
 }
@@ -509,36 +547,64 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 
-function drawPlayer() {
+function getExpression() {
+  if (isBlinking) {
+    return 'blink';
+  }
+  if (happyTimer > 0) {
+    return 'happy';
+  }
+  if (player.isJumping) {
+    return 'jumping';
+  }
+  return 'normal';
+}
+
+function drawTail() {
+  const tailSway = Math.sin(performance.now() / 280) * (player.isJumping ? 8 : 4);
+  ctx.save();
+  ctx.shadowColor = player.color;
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = player.color;
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const tailBaseX = player.x + 4;
+  const tailBaseY = player.y + player.height * 0.55;
+  ctx.moveTo(tailBaseX, tailBaseY);
+  ctx.quadraticCurveTo(
+    tailBaseX - 22 + tailSway, tailBaseY + 6,
+    tailBaseX - 30 + tailSway * 1.3, tailBaseY - 28
+  );
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPaws() {
+  if (player.isJumping) {
+    return;
+  }
+  const runFrame = Math.floor(performance.now() / 150) % 2;
+  const legOffset = runFrame === 0 ? 0 : 4;
+  ctx.fillStyle = player.color;
+  ctx.beginPath();
+  ctx.roundRect(player.x + 6 + legOffset, player.y + player.height - 4, 7, 5, 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.roundRect(player.x + player.width - 13 - legOffset, player.y + player.height - 4, 7, 5, 2);
+  ctx.fill();
+}
+
+function drawBody() {
   const earSize = 13;
 
   ctx.save();
   ctx.shadowColor = player.color;
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = player.color;
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  const tailBaseX = player.x + 2;
-  const tailBaseY = player.y + player.height * 0.6;
-  ctx.moveTo(tailBaseX, tailBaseY);
-  ctx.quadraticCurveTo(tailBaseX - 16, tailBaseY - 4, tailBaseX - 12, tailBaseY - 22);
-  ctx.stroke();
-  ctx.restore();
-
-  if (!player.isJumping) {
-    const runFrame = Math.floor(performance.now() / 150) % 2;
-    const legOffset = runFrame === 0 ? 0 : 4;
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x + 6 + legOffset, player.y + player.height - 4, 6, 4);
-    ctx.fillRect(player.x + player.width - 12 - legOffset, player.y + player.height - 4, 6, 4);
-  }
-
-  ctx.save();
-  ctx.shadowColor = player.color;
-  ctx.shadowBlur = 15;
+  ctx.shadowBlur = 18;
   ctx.fillStyle = player.color;
-  ctx.fillRect(player.x, player.y, player.width, player.height);
+  ctx.beginPath();
+  ctx.roundRect(player.x, player.y, player.width, player.height, player.width * 0.4);
+  ctx.fill();
 
   ctx.beginPath();
   ctx.moveTo(player.x + 4, player.y);
@@ -554,33 +620,114 @@ function drawPlayer() {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+}
 
+function drawWhiskers() {
+  const whiskerY = player.y + player.height * 0.5;
+  const leftBaseX = player.x + player.width * 0.05;
+  const rightBaseX = player.x + player.width * 0.95;
+
+  ctx.strokeStyle = 'rgba(245, 245, 255, 0.6)';
+  ctx.lineWidth = 0.8;
+
+  [-4, 0, 4].forEach((offset) => {
+    ctx.beginPath();
+    ctx.moveTo(leftBaseX, whiskerY + offset * 0.5);
+    ctx.lineTo(leftBaseX - 11, whiskerY + offset);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(rightBaseX, whiskerY + offset * 0.5);
+    ctx.lineTo(rightBaseX + 11, whiskerY + offset);
+    ctx.stroke();
+  });
+}
+
+function drawFace() {
   ctx.fillStyle = 'rgba(255, 170, 200, 0.6)';
-  const cheekY = player.y + player.height * 0.6;
+  const cheekY = player.y + player.height * 0.62;
   ctx.beginPath();
-  ctx.arc(player.x + player.width * 0.16, cheekY, 4, 0, Math.PI * 2);
+  ctx.arc(player.x + player.width * 0.14, cheekY, 5, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(player.x + player.width * 0.84, cheekY, 4, 0, Math.PI * 2);
+  ctx.arc(player.x + player.width * 0.86, cheekY, 5, 0, Math.PI * 2);
   ctx.fill();
 
-  const eyeY = player.y + player.height * 0.38;
-  const eyeSize = 7;
+  const expression = getExpression();
+  const eyeY = player.y + player.height * 0.36;
+  const eyeSize = 9;
+  const leftEyeX = player.x + player.width * 0.14;
+  const rightEyeX = player.x + player.width * 0.68;
+
   ctx.fillStyle = '#0b0b1a';
-  ctx.fillRect(player.x + player.width * 0.2, eyeY, eyeSize, eyeSize);
-  ctx.fillRect(player.x + player.width * 0.65, eyeY, eyeSize, eyeSize);
+  ctx.strokeStyle = '#0b0b1a';
+  ctx.lineWidth = 2;
 
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(player.x + player.width * 0.2 + 1, eyeY + 1, 2, 2);
-  ctx.fillRect(player.x + player.width * 0.65 + 1, eyeY + 1, 2, 2);
+  if (expression === 'blink') {
+    ctx.beginPath();
+    ctx.moveTo(leftEyeX, eyeY + eyeSize / 2);
+    ctx.lineTo(leftEyeX + eyeSize, eyeY + eyeSize / 2);
+    ctx.moveTo(rightEyeX, eyeY + eyeSize / 2);
+    ctx.lineTo(rightEyeX + eyeSize, eyeY + eyeSize / 2);
+    ctx.stroke();
+  } else if (expression === 'happy') {
+    ctx.beginPath();
+    ctx.arc(leftEyeX + eyeSize / 2, eyeY + eyeSize / 2, eyeSize / 2, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(rightEyeX + eyeSize / 2, eyeY + eyeSize / 2, eyeSize / 2, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  } else if (expression === 'jumping') {
+    ctx.fillRect(leftEyeX, eyeY + 2, eyeSize, eyeSize - 4);
+    ctx.fillRect(rightEyeX, eyeY + 2, eyeSize, eyeSize - 4);
+    ctx.beginPath();
+    ctx.moveTo(leftEyeX - 1, eyeY - 2);
+    ctx.lineTo(leftEyeX + eyeSize + 1, eyeY - 4);
+    ctx.moveTo(rightEyeX - 1, eyeY - 4);
+    ctx.lineTo(rightEyeX + eyeSize + 1, eyeY - 2);
+    ctx.stroke();
+  } else {
+    ctx.fillRect(leftEyeX, eyeY, eyeSize, eyeSize);
+    ctx.fillRect(rightEyeX, eyeY, eyeSize, eyeSize);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(leftEyeX + 1, eyeY + 1, 2, 2);
+    ctx.fillRect(rightEyeX + 1, eyeY + 1, 2, 2);
+  }
 
   ctx.fillStyle = COLOR_MAGENTA;
-  ctx.fillRect(player.x + player.width * 0.46, player.y + player.height * 0.52, 5, 4);
+  ctx.fillRect(player.x + player.width * 0.47, player.y + player.height * 0.53, 4, 3);
 
-  ctx.fillStyle = '#0b0b1a';
-  ctx.font = `${Math.round(player.height * 0.26)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('ω', player.x + player.width / 2, player.y + player.height * 0.82);
+  drawMouth(expression);
+}
+
+function drawMouth(expression) {
+  const mouthX = player.x + player.width / 2;
+  const mouthY = player.y + player.height * 0.78;
+
+  ctx.strokeStyle = '#0b0b1a';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+
+  if (expression === 'jumping') {
+    ctx.beginPath();
+    ctx.moveTo(mouthX - 2, mouthY);
+    ctx.lineTo(mouthX + 2, mouthY);
+    ctx.stroke();
+    return;
+  }
+
+  const mouthRadius = expression === 'happy' ? 6 : 4;
+  ctx.beginPath();
+  ctx.arc(mouthX, mouthY, mouthRadius, 0, Math.PI);
+  ctx.stroke();
+}
+
+function drawPlayer() {
+  drawTail();
+  drawPaws();
+  drawBody();
+  drawWhiskers();
+  drawFace();
 }
 
 function drawHud() {
@@ -615,7 +762,12 @@ function render() {
   drawHud();
 
   if (gameState === 'title') {
-    drawCenteredText('SPACE TO START', canvas.height / 2, 28);
+    ctx.save();
+    ctx.shadowColor = COLOR_CYAN;
+    ctx.shadowBlur = 20;
+    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 40, 38);
+    ctx.restore();
+    drawCenteredText('SPACE TO START', canvas.height / 2 + 20, 22);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
