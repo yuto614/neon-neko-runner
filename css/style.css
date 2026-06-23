@@ -4,9 +4,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #e0e0e0;
+  background: linear-gradient(180deg, #05050f 0%, #14082b 100%);
+  font-family: 'Orbitron', sans-serif;
 }
 
 canvas {
   display: block;
+  border: 2px solid #00f6ff;
+  border-radius: 12px;
+  box-shadow: 0 0 15px #00f6ff, 0 0 35px rgba(0, 246, 255, 0.35);
 }
