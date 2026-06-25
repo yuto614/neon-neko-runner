@@ -126,6 +126,25 @@ const ACHIEVEMENTS = [
 const ACHIEVEMENT_NOTICE_DURATION = 150;
 const ACHIEVEMENT_FADE_FRAMES = 15;
 
+const HIT_STOP_FISH = 3;
+const HIT_STOP_RARE_FISH = 5;
+const HIT_STOP_LEVEL_UP = 5;
+const HIT_STOP_ACHIEVEMENT = 4;
+
+const SHAKE_DURATION = 10;
+const SHAKE_RARE_FISH = 3;
+const SHAKE_LEVEL_UP = 4;
+const SHAKE_GAME_OVER = 6;
+
+const SCORE_POP_DURATION = 10;
+const HIGH_SCORE_GLOW_DURATION = 30;
+
+const FISH_RING_DURATION = 24;
+const NORMAL_RING_MAX_RADIUS = 26;
+const NORMAL_RING_PARTICLE_COUNT = 6;
+const RARE_RING_MAX_RADIUS = 46;
+const RARE_RING_PARTICLE_COUNT = 10;
+
 const moon = {
   x: canvas.width - 90,
   y: 70,
@@ -204,6 +223,12 @@ let squashMode = 'none';
 let holograms = [];
 let achievementQueue = [];
 let currentAchievementNotice = null;
+let hitStopTimer = 0;
+let shakeTimer = 0;
+let shakeMagnitude = 0;
+let scorePopTimer = 0;
+let highScoreGlowTimer = 0;
+let fishRings = [];
 
 function getAvailableObstacleTypes() {
   if (level < 3) {
@@ -315,6 +340,7 @@ function unlockAchievement(id) {
   unlockedAchievements.push(id);
   localStorage.setItem(ACHIEVEMENTS_KEY, unlockedAchievements.join(','));
   achievementQueue.push(id);
+  triggerHitStop(HIT_STOP_ACHIEVEMENT);
 }
 
 function checkAchievements() {
@@ -340,6 +366,7 @@ function checkFishCollision() {
   const color = fish.isRare ? COLOR_GOLD : COLOR_CYAN;
 
   score += bonus;
+  scorePopTimer = SCORE_POP_DURATION;
   fishCollectedThisRun += 1;
   totalFishCount += 1;
   if (fish.isRare) {
@@ -349,6 +376,21 @@ function checkFishCollision() {
   localStorage.setItem(RARE_FISH_KEY, String(rareFishCount));
 
   spawnFishSparkles(fish.x + fish.width / 2, fish.y + fish.height / 2, color);
+
+  fishRings.push({
+    x: fish.x + fish.width / 2,
+    y: fish.y + fish.height / 2,
+    timer: FISH_RING_DURATION,
+    maxTimer: FISH_RING_DURATION,
+    color,
+    maxRadius: fish.isRare ? RARE_RING_MAX_RADIUS : NORMAL_RING_MAX_RADIUS,
+    particleCount: fish.isRare ? RARE_RING_PARTICLE_COUNT : NORMAL_RING_PARTICLE_COUNT,
+  });
+
+  triggerHitStop(fish.isRare ? HIT_STOP_RARE_FISH : HIT_STOP_FISH);
+  if (fish.isRare) {
+    triggerShake(SHAKE_DURATION, SHAKE_RARE_FISH);
+  }
 
   popupTexts.push({
     x: fish.x + fish.width / 2,
@@ -361,6 +403,28 @@ function checkFishCollision() {
   });
 
   fish.active = false;
+}
+
+function triggerHitStop(duration) {
+  hitStopTimer = Math.max(hitStopTimer, duration);
+}
+
+function triggerShake(duration, magnitude) {
+  shakeTimer = Math.max(shakeTimer, duration);
+  shakeMagnitude = Math.max(shakeMagnitude, magnitude);
+}
+
+function getComboTier(count) {
+  if (count >= 30) {
+    return { color: COLOR_WHITE, blur: 28, pulse: true };
+  }
+  if (count >= 20) {
+    return { color: COLOR_GOLD, blur: 22, pulse: false };
+  }
+  if (count >= 10) {
+    return { color: COLOR_PURPLE, blur: 18, pulse: false };
+  }
+  return { color: COLOR_MAGENTA, blur: 16, pulse: false };
 }
 
 function checkNearMiss() {
@@ -386,6 +450,7 @@ function triggerNearMiss() {
 
   const bonus = Math.min(NEAR_MISS_BASE_BONUS + (comboCount - 1) * NEAR_MISS_COMBO_STEP, NEAR_MISS_BONUS_CAP);
   score += bonus;
+  scorePopTimer = SCORE_POP_DURATION;
 
   popupTexts.push({
     x: obstacle.x + obstacle.width / 2,
@@ -435,6 +500,12 @@ function startGame() {
   holograms.length = 0;
   fish.active = false;
   fishCollectedThisRun = 0;
+  hitStopTimer = 0;
+  shakeTimer = 0;
+  shakeMagnitude = 0;
+  scorePopTimer = 0;
+  highScoreGlowTimer = 0;
+  fishRings.length = 0;
   gameState = 'playing';
 }
 
@@ -460,9 +531,27 @@ window.addEventListener('keydown', (e) => {
 });
 
 function update() {
+  if (hitStopTimer > 0) {
+    hitStopTimer -= 1;
+    return;
+  }
+
   if (gameOverFlashTimer > 0) {
     gameOverFlashTimer -= 1;
   }
+  if (scorePopTimer > 0) {
+    scorePopTimer -= 1;
+  }
+  if (highScoreGlowTimer > 0) {
+    highScoreGlowTimer -= 1;
+  }
+  if (shakeTimer > 0) {
+    shakeTimer -= 1;
+  }
+  fishRings.forEach((r) => {
+    r.timer -= 1;
+  });
+  fishRings = fishRings.filter((r) => r.timer > 0);
 
   if (currentAchievementNotice) {
     currentAchievementNotice.timer -= 1;
@@ -589,9 +678,11 @@ function update() {
     gameOverFlashTimer = GAME_OVER_FLASH_DURATION;
     comboCount = 0;
     comboTimer = 0;
+    triggerShake(SHAKE_DURATION, SHAKE_GAME_OVER);
     if (score > highScore) {
       highScore = score;
       localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+      highScoreGlowTimer = HIGH_SCORE_GLOW_DURATION;
     }
     return;
   }
@@ -604,6 +695,8 @@ function update() {
   level = Math.floor(score / 1000) + 1;
   if (level !== previousLevel) {
     levelUpTimer = LEVEL_UP_DURATION;
+    triggerHitStop(HIT_STOP_LEVEL_UP);
+    triggerShake(SHAKE_DURATION, SHAKE_LEVEL_UP);
   }
 
   if (nextMilestoneIndex < MILESTONES.length && score >= MILESTONES[nextMilestoneIndex]) {
@@ -673,7 +766,7 @@ function drawShootingStars() {
 }
 
 function drawMoon() {
-  const baseBlur = level >= 5 ? 38 : 25;
+  const baseBlur = level >= 8 ? 46 : level >= 5 ? 38 : 25;
   const pulse = Math.sin(performance.now() / 500) * 4;
   ctx.save();
   ctx.shadowColor = moon.color;
@@ -746,7 +839,7 @@ function drawHolograms() {
 function drawHorizon() {
   ctx.save();
   ctx.shadowColor = COLOR_MAGENTA;
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = level >= 8 ? 16 : 8;
   ctx.strokeStyle = 'rgba(255, 45, 149, 0.7)';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -760,6 +853,10 @@ function drawGrid() {
   ctx.save();
   ctx.strokeStyle = 'rgba(0, 246, 255, 0.35)';
   ctx.lineWidth = 1;
+  if (level >= 8) {
+    ctx.shadowColor = COLOR_CYAN;
+    ctx.shadowBlur = 6;
+  }
 
   const vanishX = canvas.width / 2;
 
@@ -1184,12 +1281,31 @@ function drawHud() {
   ctx.fillStyle = COLOR_CYAN;
   ctx.font = '18px Orbitron, sans-serif';
   ctx.fillText('LEVEL ' + level, 20, 28);
-  ctx.fillText('SCORE: ' + score, 20, 52);
+
+  if (scorePopTimer > 0) {
+    const scale = 1 + (scorePopTimer / SCORE_POP_DURATION) * 0.3;
+    ctx.save();
+    ctx.translate(20, 52);
+    ctx.scale(scale, scale);
+    ctx.translate(-20, -52);
+    ctx.fillText('SCORE: ' + score, 20, 52);
+    ctx.restore();
+  } else {
+    ctx.fillText('SCORE: ' + score, 20, 52);
+  }
+
+  ctx.save();
+  if (highScoreGlowTimer > 0) {
+    ctx.shadowColor = COLOR_WHITE;
+    ctx.shadowBlur = 20;
+  }
   ctx.fillText('HIGH SCORE: ' + highScore, 20, 76);
+  ctx.restore();
+
   ctx.fillText('FISH: ' + fishCollectedThisRun, 20, 100);
 
   if (comboCount > 0) {
-    ctx.fillStyle = COLOR_MAGENTA;
+    ctx.fillStyle = getComboTier(comboCount).color;
     ctx.fillText('COMBO x' + comboCount, 20, 124);
   }
 }
@@ -1255,6 +1371,29 @@ function drawFish() {
   ctx.restore();
 }
 
+function drawFishRings() {
+  fishRings.forEach((r) => {
+    const progress = 1 - r.timer / r.maxTimer;
+    const radius = progress * r.maxRadius;
+    const alpha = r.timer / r.maxTimer;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = r.color;
+    ctx.shadowColor = r.color;
+    ctx.shadowBlur = 10;
+    for (let i = 0; i < r.particleCount; i++) {
+      const angle = (Math.PI * 2 * i) / r.particleCount;
+      const px = r.x + Math.cos(angle) * radius;
+      const py = r.y + Math.sin(angle) * radius;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+}
+
 function drawAchievementNotice() {
   if (!currentAchievementNotice) {
     return;
@@ -1283,13 +1422,15 @@ function drawComboPopup() {
     return;
   }
   const alpha = Math.min(1, comboPopupTimer / 30);
+  const tier = getComboTier(comboCount);
+  const blur = tier.pulse ? tier.blur + Math.sin(performance.now() / 80) * 6 : tier.blur;
 
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textAlign = 'center';
-  ctx.shadowColor = COLOR_MAGENTA;
-  ctx.shadowBlur = 16;
-  ctx.fillStyle = COLOR_MAGENTA;
+  ctx.shadowColor = tier.color;
+  ctx.shadowBlur = blur;
+  ctx.fillStyle = tier.color;
   ctx.font = '26px Orbitron, sans-serif';
   ctx.fillText('COMBO x' + comboCount, canvas.width / 2, 70);
   ctx.restore();
@@ -1321,6 +1462,22 @@ function drawLevelUpRing() {
   ctx.restore();
 }
 
+function drawLevelUpText() {
+  if (levelUpTimer <= 0 || milestoneTimer > 0) {
+    return;
+  }
+  const alpha = levelUpTimer / LEVEL_UP_DURATION;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = COLOR_GOLD;
+  ctx.shadowBlur = 24;
+  drawCenteredText('LEVEL UP!', canvas.height / 2 - 24, 28, COLOR_GOLD);
+  ctx.shadowBlur = 30;
+  drawCenteredText('LEVEL ' + level, canvas.height / 2 + 16, 34, COLOR_GOLD);
+  ctx.restore();
+}
+
 function drawMilestone() {
   if (milestoneTimer <= 0) {
     return;
@@ -1336,14 +1493,20 @@ function drawMilestone() {
   ctx.restore();
 }
 
-function drawCenteredText(text, y, size) {
+function drawCenteredText(text, y, size, color) {
   ctx.textAlign = 'center';
-  ctx.fillStyle = COLOR_CYAN;
+  ctx.fillStyle = color || COLOR_CYAN;
   ctx.font = size + 'px Orbitron, sans-serif';
   ctx.fillText(text, canvas.width / 2, y);
 }
 
 function render() {
+  ctx.save();
+  if (shakeTimer > 0) {
+    const amp = shakeMagnitude * (shakeTimer / SHAKE_DURATION);
+    ctx.translate(randomRange(-amp, amp), randomRange(-amp, amp));
+  }
+
   drawBackground();
   drawLevelUpGlow();
   drawStars();
@@ -1361,6 +1524,10 @@ function render() {
   drawPopupTexts();
   drawPlayer();
   drawLevelUpRing();
+  drawFishRings();
+
+  ctx.restore();
+
   drawHud();
   drawComboPopup();
 
@@ -1368,27 +1535,24 @@ function render() {
     ctx.save();
     ctx.shadowColor = COLOR_CYAN;
     ctx.shadowBlur = 20;
-    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 60, 38);
+    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 70, 38);
     ctx.restore();
-    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 10, 18);
-    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 + 14, 18);
-    drawCenteredText('SPACE TO START', canvas.height / 2 + 50, 22);
+    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 20, 16);
+    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 + 2, 16);
+    drawCenteredText('ACHIEVEMENTS', canvas.height / 2 + 24, 14);
+    drawCenteredText(unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 + 46, 16);
+    drawCenteredText('SPACE TO START', canvas.height / 2 + 78, 22);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
-      drawCenteredText('GAME OVER', canvas.height / 2 - 20, 34);
+      drawCenteredText('GAME OVER', canvas.height / 2 - 40, 34);
     }
-    drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 25, 20);
+    drawCenteredText('SCORE ' + score, canvas.height / 2 - 4, 20);
+    drawCenteredText('FISH ' + fishCollectedThisRun, canvas.height / 2 + 20, 18);
+    drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 54, 20);
   }
 
-  if (levelUpTimer > 0 && milestoneTimer <= 0) {
-    const blinkOn = Math.floor(performance.now() / 200) % 2 === 0;
-    if (blinkOn) {
-      drawCenteredText('LEVEL UP!', canvas.height / 2 - 20, 30);
-      drawCenteredText('LEVEL ' + level, canvas.height / 2 + 14, 22);
-    }
-  }
-
+  drawLevelUpText();
   drawMilestone();
 
   if (gameOverFlashTimer > 0) {
