@@ -33,6 +33,7 @@ const obstacle = {
   height: 40,
   color: COLOR_MAGENTA,
   type: 'block',
+  speedMultiplier: 1,
   nearMissChecked: false,
 };
 
@@ -43,11 +44,15 @@ const MAX_OBSTACLE_SPEED = 10;
 const ABSOLUTE_MAX_OBSTACLE_SPEED = 14;
 const SPEED_PER_SCORE = 0.005;
 const LEVEL_SPEED_BONUS = 0.6;
-const OBSTACLE_MIN_WIDTH = 20;
-const OBSTACLE_MAX_WIDTH = 50;
-const OBSTACLE_MIN_HEIGHT = 30;
-const OBSTACLE_MAX_HEIGHT = 70;
-const OBSTACLE_TYPES = ['block', 'yarn', 'bone'];
+const OBSTACLE_DEFS = {
+  block: { minWidth: 26, maxWidth: 40, minHeight: 34, maxHeight: 46, speedMultiplier: 1 },
+  yarn: { minWidth: 18, maxWidth: 26, minHeight: 18, maxHeight: 26, speedMultiplier: 1.15 },
+  bone: { minWidth: 30, maxWidth: 44, minHeight: 22, maxHeight: 30, speedMultiplier: 1 },
+  vacuum: { minWidth: 50, maxWidth: 62, minHeight: 26, maxHeight: 32, speedMultiplier: 1.2 },
+  dog: { minWidth: 44, maxWidth: 56, minHeight: 48, maxHeight: 58, speedMultiplier: 0.85 },
+  trashcan: { minWidth: 24, maxWidth: 30, minHeight: 58, maxHeight: 72, speedMultiplier: 1 },
+};
+const OBSTACLE_TYPES = Object.keys(OBSTACLE_DEFS);
 const groundY = ground.y - player.height;
 
 const HORIZON_Y = 250;
@@ -81,6 +86,13 @@ const MILESTONES = [1000, 3000, 5000, 10000];
 const MILESTONE_DURATION = 100;
 const RING_MAX_RADIUS = 70;
 const RING_PARTICLE_COUNT = 8;
+
+const SQUASH_DURATION = 12;
+const HOLOGRAM_TEXTS = ['FISH', 'NEKO', 'CYBER CAT'];
+const HOLOGRAM_CHANCE = 0.004;
+const HOLOGRAM_SPEED = 1.5;
+const HOLOGRAM_DURATION = 220;
+const HOLOGRAM_FADE_FRAMES = 40;
 
 const moon = {
   x: canvas.width - 90,
@@ -151,15 +163,30 @@ let niceTexts = [];
 let milestoneTimer = 0;
 let milestoneScore = 0;
 let nextMilestoneIndex = 0;
+let squashTimer = 0;
+let squashMode = 'none';
+let holograms = [];
+
+function getAvailableObstacleTypes() {
+  if (level < 3) {
+    return ['block'];
+  }
+  if (level < 5) {
+    return ['block', 'yarn', 'bone', 'vacuum'];
+  }
+  return OBSTACLE_TYPES;
+}
 
 function randomizeObstacle() {
-  obstacle.width = Math.round(randomRange(OBSTACLE_MIN_WIDTH, OBSTACLE_MAX_WIDTH));
-  obstacle.height = Math.round(randomRange(OBSTACLE_MIN_HEIGHT, OBSTACLE_MAX_HEIGHT));
+  const types = getAvailableObstacleTypes();
+  obstacle.type = types[Math.floor(Math.random() * types.length)];
+
+  const def = OBSTACLE_DEFS[obstacle.type];
+  obstacle.width = Math.round(randomRange(def.minWidth, def.maxWidth));
+  obstacle.height = Math.round(randomRange(def.minHeight, def.maxHeight));
   obstacle.y = ground.y - obstacle.height;
   obstacle.x = canvas.width + randomRange(0, 80);
-  obstacle.type = level >= 3
-    ? OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)]
-    : 'block';
+  obstacle.speedMultiplier = def.speedMultiplier;
   obstacle.nearMissChecked = false;
 }
 
@@ -201,6 +228,19 @@ function maybeSpawnShootingStar() {
     vx: 6,
     vy: 3,
     life: 30,
+  });
+}
+
+function maybeSpawnHologram() {
+  if (level < 5 || Math.random() >= HOLOGRAM_CHANCE) {
+    return;
+  }
+  holograms.push({
+    x: canvas.width + 40,
+    y: randomRange(40, HORIZON_Y - 60),
+    text: HOLOGRAM_TEXTS[Math.floor(Math.random() * HOLOGRAM_TEXTS.length)],
+    life: HOLOGRAM_DURATION,
+    maxLife: HOLOGRAM_DURATION,
   });
 }
 
@@ -247,6 +287,7 @@ function startGame() {
   obstacle.y = ground.y - obstacle.height;
   obstacle.x = 750;
   obstacle.type = 'block';
+  obstacle.speedMultiplier = OBSTACLE_DEFS.block.speedMultiplier;
   obstacle.nearMissChecked = false;
 
   obstacleSpeed = BASE_OBSTACLE_SPEED;
@@ -268,6 +309,9 @@ function startGame() {
   milestoneTimer = 0;
   milestoneScore = 0;
   nextMilestoneIndex = 0;
+  squashTimer = 0;
+  squashMode = 'none';
+  holograms.length = 0;
   gameState = 'playing';
 }
 
@@ -286,6 +330,8 @@ window.addEventListener('keydown', (e) => {
     player.vy = JUMP_STRENGTH;
     player.isJumping = true;
     spawnJumpParticles();
+    squashTimer = SQUASH_DURATION;
+    squashMode = 'jump';
   }
 });
 
@@ -314,11 +360,17 @@ function update() {
     if (wasJumping) {
       spawnLandingParticles();
       happyTimer = HAPPY_DURATION;
+      squashTimer = SQUASH_DURATION;
+      squashMode = 'land';
     }
   }
 
   if (happyTimer > 0) {
     happyTimer -= 1;
+  }
+
+  if (squashTimer > 0) {
+    squashTimer -= 1;
   }
 
   if (comboTimer > 0) {
@@ -375,7 +427,14 @@ function update() {
   });
   shootingStars = shootingStars.filter((s) => s.life > 0 && s.x < canvas.width);
 
-  obstacle.x -= obstacleSpeed;
+  maybeSpawnHologram();
+  holograms.forEach((h) => {
+    h.x -= HOLOGRAM_SPEED;
+    h.life -= 1;
+  });
+  holograms = holograms.filter((h) => h.life > 0 && h.x > -150);
+
+  obstacle.x -= obstacleSpeed * obstacle.speedMultiplier;
   if (obstacle.x + obstacle.width < 0) {
     randomizeObstacle();
   }
@@ -426,6 +485,15 @@ function drawBackground() {
   gradient.addColorStop(0, topColor);
   gradient.addColorStop(1, bottomColor);
   ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawLevelUpGlow() {
+  if (levelUpTimer <= 0) {
+    return;
+  }
+  const progress = levelUpTimer / LEVEL_UP_DURATION;
+  ctx.fillStyle = `rgba(180, 220, 255, ${progress * 0.25})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
@@ -508,6 +576,26 @@ function drawCity() {
   });
 }
 
+function drawHolograms() {
+  const time = performance.now();
+  holograms.forEach((h) => {
+    const fadeIn = (h.maxLife - h.life) / HOLOGRAM_FADE_FRAMES;
+    const fadeOut = h.life / HOLOGRAM_FADE_FRAMES;
+    const fade = Math.max(0, Math.min(1, fadeIn, fadeOut));
+    const flicker = 0.6 + Math.sin(time / 90 + h.x) * 0.4;
+
+    ctx.save();
+    ctx.globalAlpha = fade * flicker;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = COLOR_PURPLE;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = COLOR_PURPLE;
+    ctx.font = '20px Orbitron, sans-serif';
+    ctx.fillText(h.text, h.x, h.y);
+    ctx.restore();
+  });
+}
+
 function drawHorizon() {
   ctx.save();
   ctx.shadowColor = COLOR_MAGENTA;
@@ -564,6 +652,15 @@ function drawBlockObstacle() {
   ctx.fillStyle = obstacle.color;
   ctx.fillRect(obstacle.x, obstacle.y + 6, obstacle.width, 4);
   ctx.fillRect(obstacle.x, obstacle.y + obstacle.height - 10, obstacle.width, 4);
+
+  ctx.strokeStyle = 'rgba(245, 245, 255, 0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(obstacle.x + 4, obstacle.y + 4);
+  ctx.lineTo(obstacle.x + obstacle.width - 4, obstacle.y + obstacle.height - 4);
+  ctx.moveTo(obstacle.x + obstacle.width - 4, obstacle.y + 4);
+  ctx.lineTo(obstacle.x + 4, obstacle.y + obstacle.height - 4);
+  ctx.stroke();
 }
 
 function drawYarnObstacle() {
@@ -602,6 +699,102 @@ function drawBoneObstacle() {
   });
 }
 
+function drawVacuumObstacle() {
+  const bodyHeight = obstacle.height * 0.7;
+  const bodyY = obstacle.y + (obstacle.height - bodyHeight);
+
+  ctx.fillStyle = '#3a0d2e';
+  ctx.beginPath();
+  ctx.roundRect(obstacle.x, bodyY, obstacle.width, bodyHeight, bodyHeight / 2);
+  ctx.fill();
+
+  ctx.strokeStyle = obstacle.color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.roundRect(obstacle.x, bodyY, obstacle.width, bodyHeight, bodyHeight / 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(obstacle.x + obstacle.width * 0.2, bodyY);
+  ctx.quadraticCurveTo(
+    obstacle.x + obstacle.width * 0.1, obstacle.y - 6,
+    obstacle.x + obstacle.width * 0.32, obstacle.y - 2
+  );
+  ctx.stroke();
+
+  ctx.fillStyle = obstacle.color;
+  const wheelR = 3.5;
+  ctx.beginPath();
+  ctx.arc(obstacle.x + obstacle.width * 0.25, obstacle.y + obstacle.height - 2, wheelR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(obstacle.x + obstacle.width * 0.75, obstacle.y + obstacle.height - 2, wheelR, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDogObstacle() {
+  const bodyY = obstacle.y + obstacle.height * 0.25;
+  const bodyHeight = obstacle.height * 0.75;
+
+  ctx.fillStyle = '#3a0d2e';
+  ctx.beginPath();
+  ctx.roundRect(obstacle.x, bodyY, obstacle.width, bodyHeight, 10);
+  ctx.fill();
+
+  ctx.strokeStyle = obstacle.color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.roundRect(obstacle.x, bodyY, obstacle.width, bodyHeight, 10);
+  ctx.stroke();
+
+  ctx.fillStyle = obstacle.color;
+  ctx.beginPath();
+  ctx.moveTo(obstacle.x + obstacle.width * 0.15, bodyY);
+  ctx.lineTo(obstacle.x + obstacle.width * 0.05, obstacle.y);
+  ctx.lineTo(obstacle.x + obstacle.width * 0.3, bodyY - 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(obstacle.x + obstacle.width * 0.7, bodyY);
+  ctx.lineTo(obstacle.x + obstacle.width * 0.8, obstacle.y);
+  ctx.lineTo(obstacle.x + obstacle.width * 0.95, bodyY - 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = obstacle.color;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(obstacle.x + obstacle.width, bodyY + bodyHeight * 0.4);
+  ctx.quadraticCurveTo(
+    obstacle.x + obstacle.width + 10, bodyY + bodyHeight * 0.1,
+    obstacle.x + obstacle.width + 4, bodyY - 6
+  );
+  ctx.stroke();
+}
+
+function drawTrashcanObstacle() {
+  ctx.fillStyle = '#3a0d2e';
+  ctx.fillRect(obstacle.x, obstacle.y + 6, obstacle.width, obstacle.height - 6);
+
+  ctx.strokeStyle = obstacle.color;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(obstacle.x + 1, obstacle.y + 7, obstacle.width - 2, obstacle.height - 8);
+
+  ctx.fillStyle = obstacle.color;
+  ctx.fillRect(obstacle.x - 2, obstacle.y, obstacle.width + 4, 6);
+
+  ctx.strokeStyle = 'rgba(245, 245, 255, 0.4)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 2; i++) {
+    const y = obstacle.y + 6 + ((obstacle.height - 6) / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(obstacle.x + 2, y);
+    ctx.lineTo(obstacle.x + obstacle.width - 2, y);
+    ctx.stroke();
+  }
+}
+
 function drawObstacle() {
   ctx.save();
   ctx.shadowColor = obstacle.color;
@@ -611,6 +804,12 @@ function drawObstacle() {
     drawYarnObstacle();
   } else if (obstacle.type === 'bone') {
     drawBoneObstacle();
+  } else if (obstacle.type === 'vacuum') {
+    drawVacuumObstacle();
+  } else if (obstacle.type === 'dog') {
+    drawDogObstacle();
+  } else if (obstacle.type === 'trashcan') {
+    drawTrashcanObstacle();
   } else {
     drawBlockObstacle();
   }
@@ -812,11 +1011,25 @@ function drawMouth(expression) {
 }
 
 function drawPlayer() {
+  const t = squashTimer > 0 ? 1 - squashTimer / SQUASH_DURATION : 0;
+  const amount = squashTimer > 0 ? Math.sin(t * Math.PI) : 0;
+  const scaleY = squashMode === 'land' ? 1 - amount * 0.18 : 1 + amount * 0.15;
+  const scaleX = squashMode === 'land' ? 1 + amount * 0.12 : 1 - amount * 0.1;
+  const pivotX = player.x + player.width / 2;
+  const pivotY = player.y + player.height;
+
+  ctx.save();
+  ctx.translate(pivotX, pivotY);
+  ctx.scale(scaleX, scaleY);
+  ctx.translate(-pivotX, -pivotY);
+
   drawTail();
   drawPaws();
   drawBody();
   drawWhiskers();
   drawFace();
+
+  ctx.restore();
 }
 
 function drawHud() {
@@ -919,10 +1132,12 @@ function drawCenteredText(text, y, size) {
 
 function render() {
   drawBackground();
+  drawLevelUpGlow();
   drawStars();
   drawShootingStars();
   drawMoon();
   drawCity();
+  drawHolograms();
   drawHorizon();
   drawGrid();
   drawGround();
