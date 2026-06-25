@@ -28,6 +28,7 @@ const player = {
   color: COLOR_CYAN,
   vy: 0,
   isJumping: false,
+  jumpCount: 0,
 };
 
 const obstacle = {
@@ -145,6 +146,14 @@ const NORMAL_RING_PARTICLE_COUNT = 6;
 const RARE_RING_MAX_RADIUS = 46;
 const RARE_RING_PARTICLE_COUNT = 10;
 
+const MAX_JUMP_COUNT = 2;
+const DOUBLE_JUMP_PARTICLE_COUNT = 10;
+const DOUBLE_JUMP_PARTICLE_LIFETIME = 20;
+const DOUBLE_JUMP_RING_DURATION = 20;
+const DOUBLE_JUMP_RING_MAX_RADIUS = 36;
+const DOUBLE_JUMP_RING_PARTICLE_COUNT = 10;
+const DOUBLE_JUMP_GLOW_DURATION = 10;
+
 const moon = {
   x: canvas.width - 90,
   y: 70,
@@ -228,7 +237,9 @@ let shakeTimer = 0;
 let shakeMagnitude = 0;
 let scorePopTimer = 0;
 let highScoreGlowTimer = 0;
-let fishRings = [];
+let rings = [];
+let playerGlowTimer = 0;
+let isNewRecord = false;
 
 function getAvailableObstacleTypes() {
   if (level < 3) {
@@ -277,6 +288,20 @@ function spawnLandingParticles() {
       life: LANDING_PARTICLE_LIFETIME,
       maxLife: LANDING_PARTICLE_LIFETIME,
       color: COLOR_CYAN,
+    });
+  }
+}
+
+function spawnDoubleJumpParticles() {
+  for (let i = 0; i < DOUBLE_JUMP_PARTICLE_COUNT; i++) {
+    particles.push({
+      x: player.x + player.width / 2,
+      y: player.y + player.height / 2,
+      vx: randomRange(-2, 2),
+      vy: randomRange(-2, 1),
+      life: DOUBLE_JUMP_PARTICLE_LIFETIME,
+      maxLife: DOUBLE_JUMP_PARTICLE_LIFETIME,
+      color: i % 2 === 0 ? COLOR_CYAN : COLOR_MAGENTA,
     });
   }
 }
@@ -377,7 +402,7 @@ function checkFishCollision() {
 
   spawnFishSparkles(fish.x + fish.width / 2, fish.y + fish.height / 2, color);
 
-  fishRings.push({
+  rings.push({
     x: fish.x + fish.width / 2,
     y: fish.y + fish.height / 2,
     timer: FISH_RING_DURATION,
@@ -505,29 +530,92 @@ function startGame() {
   shakeMagnitude = 0;
   scorePopTimer = 0;
   highScoreGlowTimer = 0;
-  fishRings.length = 0;
+  rings.length = 0;
+  playerGlowTimer = 0;
+  isNewRecord = false;
+  player.jumpCount = 0;
   gameState = 'playing';
 }
 
-window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Space') {
+function jumpAction() {
+  if (player.jumpCount >= MAX_JUMP_COUNT) {
     return;
   }
-  e.preventDefault();
+  player.vy = JUMP_STRENGTH;
+  player.isJumping = true;
+  player.jumpCount += 1;
+  squashTimer = SQUASH_DURATION;
+  squashMode = 'jump';
+  unlockAchievement('first_jump');
 
+  if (player.jumpCount >= MAX_JUMP_COUNT) {
+    spawnDoubleJumpParticles();
+    playerGlowTimer = DOUBLE_JUMP_GLOW_DURATION;
+    rings.push({
+      x: player.x + player.width / 2,
+      y: player.y + player.height / 2,
+      timer: DOUBLE_JUMP_RING_DURATION,
+      maxTimer: DOUBLE_JUMP_RING_DURATION,
+      colors: [COLOR_CYAN, COLOR_MAGENTA],
+      maxRadius: DOUBLE_JUMP_RING_MAX_RADIUS,
+      particleCount: DOUBLE_JUMP_RING_PARTICLE_COUNT,
+    });
+  } else {
+    spawnJumpParticles();
+  }
+}
+
+function handlePrimaryAction() {
   if (gameState === 'title' || gameState === 'gameover') {
     startGame();
     return;
   }
-
-  if (!player.isJumping) {
-    player.vy = JUMP_STRENGTH;
-    player.isJumping = true;
-    spawnJumpParticles();
-    squashTimer = SQUASH_DURATION;
-    squashMode = 'jump';
-    unlockAchievement('first_jump');
+  if (gameState !== 'playing') {
+    return;
   }
+  jumpAction();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') {
+    if (gameState === 'achievements') {
+      gameState = 'title';
+    }
+    return;
+  }
+
+  if (e.code === 'KeyA') {
+    if (gameState === 'title') {
+      gameState = 'achievements';
+    } else if (gameState === 'achievements') {
+      gameState = 'title';
+    }
+    return;
+  }
+
+  if (e.code === 'KeyP') {
+    if (gameState === 'playing') {
+      gameState = 'paused';
+    } else if (gameState === 'paused') {
+      gameState = 'playing';
+    }
+    return;
+  }
+
+  if (e.code !== 'Space') {
+    return;
+  }
+  e.preventDefault();
+  handlePrimaryAction();
+});
+
+canvas.addEventListener('click', () => {
+  handlePrimaryAction();
+});
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  handlePrimaryAction();
 });
 
 function update() {
@@ -548,10 +636,13 @@ function update() {
   if (shakeTimer > 0) {
     shakeTimer -= 1;
   }
-  fishRings.forEach((r) => {
+  if (playerGlowTimer > 0) {
+    playerGlowTimer -= 1;
+  }
+  rings.forEach((r) => {
     r.timer -= 1;
   });
-  fishRings = fishRings.filter((r) => r.timer > 0);
+  rings = rings.filter((r) => r.timer > 0);
 
   if (currentAchievementNotice) {
     currentAchievementNotice.timer -= 1;
@@ -582,6 +673,7 @@ function update() {
     player.y = groundY;
     player.vy = 0;
     player.isJumping = false;
+    player.jumpCount = 0;
     if (wasJumping) {
       spawnLandingParticles();
       happyTimer = HAPPY_DURATION;
@@ -683,6 +775,7 @@ function update() {
       highScore = score;
       localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
       highScoreGlowTimer = HIGH_SCORE_GLOW_DURATION;
+      isNewRecord = true;
     }
     return;
   }
@@ -1130,9 +1223,11 @@ function drawPaws() {
 function drawBody() {
   const earSize = 13;
 
+  const glowBoost = playerGlowTimer > 0 ? (playerGlowTimer / DOUBLE_JUMP_GLOW_DURATION) * 26 : 0;
+
   ctx.save();
   ctx.shadowColor = player.color;
-  ctx.shadowBlur = 18;
+  ctx.shadowBlur = 18 + glowBoost;
   ctx.fillStyle = player.color;
   ctx.beginPath();
   ctx.roundRect(player.x, player.y, player.width, player.height, player.width * 0.4);
@@ -1371,21 +1466,22 @@ function drawFish() {
   ctx.restore();
 }
 
-function drawFishRings() {
-  fishRings.forEach((r) => {
+function drawRings() {
+  rings.forEach((r) => {
     const progress = 1 - r.timer / r.maxTimer;
     const radius = progress * r.maxRadius;
     const alpha = r.timer / r.maxTimer;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = r.color;
-    ctx.shadowColor = r.color;
     ctx.shadowBlur = 10;
     for (let i = 0; i < r.particleCount; i++) {
       const angle = (Math.PI * 2 * i) / r.particleCount;
       const px = r.x + Math.cos(angle) * radius;
       const py = r.y + Math.sin(angle) * radius;
+      const color = r.colors ? r.colors[i % r.colors.length] : r.color;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
       ctx.beginPath();
       ctx.arc(px, py, 2.5, 0, Math.PI * 2);
       ctx.fill();
@@ -1524,7 +1620,7 @@ function render() {
   drawPopupTexts();
   drawPlayer();
   drawLevelUpRing();
-  drawFishRings();
+  drawRings();
 
   ctx.restore();
 
@@ -1535,21 +1631,47 @@ function render() {
     ctx.save();
     ctx.shadowColor = COLOR_CYAN;
     ctx.shadowBlur = 20;
-    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 70, 38);
+    drawCenteredText('NEON NEKO RUNNER', canvas.height / 2 - 140, 36);
     ctx.restore();
-    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 20, 16);
-    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 + 2, 16);
-    drawCenteredText('ACHIEVEMENTS', canvas.height / 2 + 24, 14);
-    drawCenteredText(unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 + 46, 16);
-    drawCenteredText('SPACE TO START', canvas.height / 2 + 78, 22);
+
+    drawCenteredText('SPACE / TAP TO JUMP', canvas.height / 2 - 100, 14, COLOR_WHITE);
+    drawCenteredText('COLLECT FISH', canvas.height / 2 - 81, 14, COLOR_WHITE);
+    drawCenteredText('AVOID OBSTACLES', canvas.height / 2 - 62, 14, COLOR_WHITE);
+
+    drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 29, 16);
+    drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 7, 16);
+    drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 + 15, 16);
+    drawCenteredText('A KEY : VIEW ACHIEVEMENTS', canvas.height / 2 + 36, 13, COLOR_PURPLE);
+
+    drawCenteredText('SPACE TO START', canvas.height / 2 + 75, 22);
+  } else if (gameState === 'achievements') {
+    drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
+    ACHIEVEMENTS.forEach((a, i) => {
+      const unlocked = unlockedAchievements.includes(a.id);
+      const mark = unlocked ? '✓' : '□';
+      const color = unlocked ? COLOR_GOLD : COLOR_WHITE;
+      drawCenteredText(mark + ' ' + a.title, canvas.height / 2 - 100 + i * 36, 20, color);
+    });
+    drawCenteredText('ESC / A : BACK', canvas.height / 2 + 130, 16);
+  } else if (gameState === 'paused') {
+    drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
+    drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
-      drawCenteredText('GAME OVER', canvas.height / 2 - 40, 34);
+      drawCenteredText('GAME OVER', canvas.height / 2 - 46, 34);
     }
-    drawCenteredText('SCORE ' + score, canvas.height / 2 - 4, 20);
-    drawCenteredText('FISH ' + fishCollectedThisRun, canvas.height / 2 + 20, 18);
-    drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 54, 20);
+    if (isNewRecord) {
+      const pulse = 22 + Math.sin(performance.now() / 120) * 6;
+      ctx.save();
+      ctx.shadowColor = COLOR_GOLD;
+      ctx.shadowBlur = pulse;
+      drawCenteredText('NEW RECORD!', canvas.height / 2 - 14, 24, COLOR_GOLD);
+      ctx.restore();
+    }
+    drawCenteredText('SCORE ' + score, canvas.height / 2 + 10, 20);
+    drawCenteredText('FISH ' + fishCollectedThisRun, canvas.height / 2 + 32, 18);
+    drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 62, 20);
   }
 
   drawLevelUpText();
