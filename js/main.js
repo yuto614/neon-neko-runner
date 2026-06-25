@@ -33,6 +33,7 @@ const obstacle = {
   height: 40,
   color: COLOR_MAGENTA,
   type: 'block',
+  nearMissChecked: false,
 };
 
 const GRAVITY = 0.6;
@@ -68,6 +69,18 @@ const BLINK_MIN_INTERVAL = 180;
 const BLINK_MAX_INTERVAL = 300;
 const BLINK_DURATION = 6;
 const HAPPY_DURATION = 20;
+
+const NEAR_MISS_GAP = 18;
+const NEAR_MISS_BASE_BONUS = 50;
+const NEAR_MISS_COMBO_STEP = 10;
+const NEAR_MISS_BONUS_CAP = 100;
+const NICE_TEXT_DURATION = 60;
+const COMBO_RESET_FRAMES = 150;
+const COMBO_POPUP_DURATION = 90;
+const MILESTONES = [1000, 3000, 5000, 10000];
+const MILESTONE_DURATION = 100;
+const RING_MAX_RADIUS = 70;
+const RING_PARTICLE_COUNT = 8;
 
 const moon = {
   x: canvas.width - 90,
@@ -131,6 +144,13 @@ let isBlinking = false;
 let blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
 let blinkDuration = 0;
 let happyTimer = 0;
+let comboCount = 0;
+let comboTimer = 0;
+let comboPopupTimer = 0;
+let niceTexts = [];
+let milestoneTimer = 0;
+let milestoneScore = 0;
+let nextMilestoneIndex = 0;
 
 function randomizeObstacle() {
   obstacle.width = Math.round(randomRange(OBSTACLE_MIN_WIDTH, OBSTACLE_MAX_WIDTH));
@@ -140,6 +160,7 @@ function randomizeObstacle() {
   obstacle.type = level >= 3
     ? OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)]
     : 'block';
+  obstacle.nearMissChecked = false;
 }
 
 function spawnJumpParticles() {
@@ -183,6 +204,39 @@ function maybeSpawnShootingStar() {
   });
 }
 
+function checkNearMiss() {
+  if (!player.isJumping || obstacle.nearMissChecked) {
+    return;
+  }
+  const horizontalOverlap = player.x < obstacle.x + obstacle.width && player.x + player.width > obstacle.x;
+  if (!horizontalOverlap) {
+    return;
+  }
+  const gap = obstacle.y - (player.y + player.height);
+  if (gap > NEAR_MISS_GAP) {
+    return;
+  }
+  obstacle.nearMissChecked = true;
+  triggerNearMiss();
+}
+
+function triggerNearMiss() {
+  comboCount += 1;
+  comboTimer = COMBO_RESET_FRAMES;
+  comboPopupTimer = COMBO_POPUP_DURATION;
+
+  const bonus = Math.min(NEAR_MISS_BASE_BONUS + (comboCount - 1) * NEAR_MISS_COMBO_STEP, NEAR_MISS_BONUS_CAP);
+  score += bonus;
+
+  niceTexts.push({
+    x: obstacle.x + obstacle.width / 2,
+    y: obstacle.y - 10,
+    bonus,
+    life: NICE_TEXT_DURATION,
+    maxLife: NICE_TEXT_DURATION,
+  });
+}
+
 function startGame() {
   player.y = groundY;
   player.vy = 0;
@@ -193,6 +247,7 @@ function startGame() {
   obstacle.y = ground.y - obstacle.height;
   obstacle.x = 750;
   obstacle.type = 'block';
+  obstacle.nearMissChecked = false;
 
   obstacleSpeed = BASE_OBSTACLE_SPEED;
   score = 0;
@@ -206,6 +261,13 @@ function startGame() {
   blinkDuration = 0;
   blinkTimer = Math.round(randomRange(BLINK_MIN_INTERVAL, BLINK_MAX_INTERVAL));
   happyTimer = 0;
+  comboCount = 0;
+  comboTimer = 0;
+  comboPopupTimer = 0;
+  niceTexts.length = 0;
+  milestoneTimer = 0;
+  milestoneScore = 0;
+  nextMilestoneIndex = 0;
   gameState = 'playing';
 }
 
@@ -259,6 +321,23 @@ function update() {
     happyTimer -= 1;
   }
 
+  if (comboTimer > 0) {
+    comboTimer -= 1;
+    if (comboTimer <= 0) {
+      comboCount = 0;
+    }
+  }
+  if (comboPopupTimer > 0) {
+    comboPopupTimer -= 1;
+  }
+  if (milestoneTimer > 0) {
+    milestoneTimer -= 1;
+  }
+  niceTexts.forEach((t) => {
+    t.life -= 1;
+  });
+  niceTexts = niceTexts.filter((t) => t.life > 0);
+
   blinkTimer -= 1;
   if (blinkTimer <= 0) {
     isBlinking = true;
@@ -304,6 +383,8 @@ function update() {
   if (isColliding(player, obstacle)) {
     gameState = 'gameover';
     gameOverFlashTimer = GAME_OVER_FLASH_DURATION;
+    comboCount = 0;
+    comboTimer = 0;
     if (score > highScore) {
       highScore = score;
       localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
@@ -311,12 +392,20 @@ function update() {
     return;
   }
 
+  checkNearMiss();
+
   score += 1;
 
   const previousLevel = level;
   level = Math.floor(score / 1000) + 1;
   if (level !== previousLevel) {
     levelUpTimer = LEVEL_UP_DURATION;
+  }
+
+  if (nextMilestoneIndex < MILESTONES.length && score >= MILESTONES[nextMilestoneIndex]) {
+    milestoneScore = MILESTONES[nextMilestoneIndex];
+    milestoneTimer = MILESTONE_DURATION;
+    nextMilestoneIndex += 1;
   }
 
   const maxSpeedForLevel = Math.min(ABSOLUTE_MAX_OBSTACLE_SPEED, MAX_OBSTACLE_SPEED + (level - 1) * LEVEL_SPEED_BONUS);
@@ -737,6 +826,88 @@ function drawHud() {
   ctx.fillText('LEVEL ' + level, 20, 28);
   ctx.fillText('SCORE: ' + score, 20, 52);
   ctx.fillText('HIGH SCORE: ' + highScore, 20, 76);
+
+  if (comboCount > 0) {
+    ctx.fillStyle = COLOR_MAGENTA;
+    ctx.fillText('COMBO x' + comboCount, 20, 100);
+  }
+}
+
+function drawNiceTexts() {
+  niceTexts.forEach((t) => {
+    const progress = 1 - t.life / t.maxLife;
+    const alpha = t.life / t.maxLife;
+    const y = t.y - progress * 20;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = COLOR_CYAN;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = COLOR_CYAN;
+    ctx.font = '16px Orbitron, sans-serif';
+    ctx.fillText('NICE!', t.x, y);
+    ctx.fillText('+' + t.bonus, t.x, y + 16);
+    ctx.restore();
+  });
+}
+
+function drawComboPopup() {
+  if (comboPopupTimer <= 0 || comboCount < 2) {
+    return;
+  }
+  const alpha = Math.min(1, comboPopupTimer / 30);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.shadowColor = COLOR_MAGENTA;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = COLOR_MAGENTA;
+  ctx.font = '26px Orbitron, sans-serif';
+  ctx.fillText('COMBO x' + comboCount, canvas.width / 2, 70);
+  ctx.restore();
+}
+
+function drawLevelUpRing() {
+  if (levelUpTimer <= 0) {
+    return;
+  }
+  const progress = 1 - levelUpTimer / LEVEL_UP_DURATION;
+  const radius = progress * RING_MAX_RADIUS;
+  const alpha = 1 - progress;
+  const cx = player.x + player.width / 2;
+  const cy = player.y + player.height / 2;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = COLOR_PURPLE;
+  ctx.shadowColor = COLOR_PURPLE;
+  ctx.shadowBlur = 10;
+  for (let i = 0; i < RING_PARTICLE_COUNT; i++) {
+    const angle = (Math.PI * 2 * i) / RING_PARTICLE_COUNT;
+    const px = cx + Math.cos(angle) * radius;
+    const py = cy + Math.sin(angle) * radius;
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMilestone() {
+  if (milestoneTimer <= 0) {
+    return;
+  }
+  const alpha = Math.min(1, milestoneTimer / 20);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = COLOR_CYAN;
+  ctx.shadowBlur = 22;
+  drawCenteredText('MILESTONE!', canvas.height / 2 - 20, 32);
+  drawCenteredText(milestoneScore + ' SCORE', canvas.height / 2 + 16, 22);
+  ctx.restore();
 }
 
 function drawCenteredText(text, y, size) {
@@ -758,8 +929,11 @@ function render() {
   drawObstacle();
   drawTrail();
   drawParticles();
+  drawNiceTexts();
   drawPlayer();
+  drawLevelUpRing();
   drawHud();
+  drawComboPopup();
 
   if (gameState === 'title') {
     ctx.save();
@@ -776,13 +950,15 @@ function render() {
     drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 25, 20);
   }
 
-  if (levelUpTimer > 0) {
+  if (levelUpTimer > 0 && milestoneTimer <= 0) {
     const blinkOn = Math.floor(performance.now() / 200) % 2 === 0;
     if (blinkOn) {
       drawCenteredText('LEVEL UP!', canvas.height / 2 - 20, 30);
       drawCenteredText('LEVEL ' + level, canvas.height / 2 + 14, 22);
     }
   }
+
+  drawMilestone();
 
   if (gameOverFlashTimer > 0) {
     ctx.fillStyle = `rgba(255, 30, 30, ${(gameOverFlashTimer / GAME_OVER_FLASH_DURATION) * 0.35})`;
