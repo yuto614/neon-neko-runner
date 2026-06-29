@@ -1095,7 +1095,7 @@ function triggerNearMiss() {
   });
 }
 
-function startGame() {
+function resetRunState() {
   player.y = groundY;
   player.vy = 0;
   player.isJumping = false;
@@ -1153,11 +1153,24 @@ function startGame() {
   player.jumpCount = 0;
   runJumpCount = 0;
   runPlayTimeFrames = 0;
+}
+
+function startGame() {
+  resetRunState();
   statistics.totalPlayCount += 1;
   statistics.modePlayCounts[currentMode.id] = (statistics.modePlayCounts[currentMode.id] || 0) + 1;
   saveStatistics();
   gameState = 'playing';
   playBgm('playing');
+}
+
+// SPACEでのリスタートとは異なり、プレイ回数の統計には加算しない
+// （ゲームを開始していないため）
+function returnToTitleFromGameOver() {
+  resetRunState();
+  gameState = 'title';
+  playBgm('title');
+  checkSkinUnlocks();
 }
 
 function jumpAction() {
@@ -1319,6 +1332,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     if (gameState === 'resetConfirm') {
       gameState = 'settings';
+      return;
+    }
+    if (gameState === 'gameover') {
+      returnToTitleFromGameOver();
       return;
     }
     if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions' || gameState === 'ranking' || gameState === 'statistics') {
@@ -3004,6 +3021,7 @@ function render() {
     drawCenteredText('RARE FISH: ' + rareFishCollectedThisRun, canvas.height / 2 + 44, 16);
     drawCenteredText('MODE: ' + currentMode.name.toUpperCase(), canvas.height / 2 + 62, 16, COLOR_GOLD);
     drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 88, 18);
+    drawCenteredText('ESC : MAIN MENU', canvas.height / 2 + 108, 14, COLOR_PURPLE);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {
@@ -3020,6 +3038,7 @@ function render() {
     drawCenteredText('SCORE ' + score, canvas.height / 2 + 10, 20);
     drawCenteredText('FISH ' + fishCollectedThisRun, canvas.height / 2 + 32, 18);
     drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 62, 20);
+    drawCenteredText('ESC : MAIN MENU', canvas.height / 2 + 84, 14, COLOR_PURPLE);
   }
 
   drawLevelUpText();
