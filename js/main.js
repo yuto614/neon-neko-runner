@@ -12,6 +12,7 @@ const SE_ENABLED_KEY = 'cat-game-se-enabled';
 const SELECTED_SKIN_KEY = 'cat-game-selected-skin';
 const UNLOCKED_SKINS_KEY = 'cat-game-unlocked-skins';
 const SELECTED_MODE_KEY = 'cat-game-selected-mode';
+const MISSIONS_KEY = 'cat-game-missions';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -376,6 +377,126 @@ function checkSkinUnlocks() {
   localStorage.setItem(UNLOCKED_SKINS_KEY, unlockedSkinIds.join(','));
   newlyUnlocked.forEach((skin) => {
     skinUnlockQueue.push(skin.id);
+  });
+}
+
+const MISSIONS = [
+  {
+    id: 'fish_collector',
+    title: 'Fish Collector',
+    description: 'Collect 100 fish (total).',
+    type: 'totalFish',
+    target: 100,
+    rewardType: 'skin',
+    rewardValue: 'pink_cat',
+    completed: false,
+  },
+  {
+    id: 'hard_challenger',
+    title: 'Hard Challenger',
+    description: 'Score 5000+ in Hard mode.',
+    type: 'hardScore',
+    target: 5000,
+    rewardType: 'score',
+    rewardValue: 500,
+    completed: false,
+  },
+  {
+    id: 'rare_hunter',
+    title: 'Rare Hunter',
+    description: 'Collect 20 rare fish (total).',
+    type: 'rareFish',
+    target: 20,
+    rewardType: 'skin',
+    rewardValue: 'golden_cat',
+    completed: false,
+  },
+  {
+    id: 'survivor',
+    title: 'Survivor',
+    description: 'Block 5 game-overs with Shield.',
+    type: 'shieldSaves',
+    target: 5,
+    rewardType: 'skin',
+    rewardValue: 'shadow_cat',
+    completed: false,
+  },
+];
+const MISSION_NOTICE_DURATION = 150;
+const MISSION_NOTICE_FADE_FRAMES = 15;
+
+const storedMissionData = JSON.parse(localStorage.getItem(MISSIONS_KEY) || '{}');
+const completedMissionIds = storedMissionData.completed || [];
+MISSIONS.forEach((mission) => {
+  mission.completed = completedMissionIds.includes(mission.id);
+});
+let bestHardScore = storedMissionData.bestHardScore || 0;
+let shieldSaveCount = storedMissionData.shieldSaveCount || 0;
+let missionIndex = 0;
+let missionQueue = [];
+let currentMissionNotice = null;
+
+function saveMissionData() {
+  localStorage.setItem(MISSIONS_KEY, JSON.stringify({
+    completed: MISSIONS.filter((mission) => mission.completed).map((mission) => mission.id),
+    bestHardScore,
+    shieldSaveCount,
+  }));
+}
+
+function getMissionProgress(mission) {
+  if (mission.type === 'totalFish') {
+    return totalFishCount;
+  }
+  if (mission.type === 'rareFish') {
+    return rareFishCount;
+  }
+  if (mission.type === 'hardScore') {
+    return bestHardScore;
+  }
+  if (mission.type === 'shieldSaves') {
+    return shieldSaveCount;
+  }
+  return 0;
+}
+
+function getMissionRewardLabel(mission) {
+  if (mission.rewardType === 'skin') {
+    const skin = SKINS.find((s) => s.id === mission.rewardValue);
+    return skin ? skin.name : mission.rewardValue;
+  }
+  if (mission.rewardType === 'score') {
+    return '+' + mission.rewardValue + ' Bonus Score';
+  }
+  return '';
+}
+
+function completeMission(mission) {
+  mission.completed = true;
+  saveMissionData();
+
+  if (mission.rewardType === 'skin') {
+    const skin = SKINS.find((s) => s.id === mission.rewardValue);
+    if (skin && !skin.unlocked) {
+      skin.unlocked = true;
+      unlockedSkinIds.push(skin.id);
+      localStorage.setItem(UNLOCKED_SKINS_KEY, unlockedSkinIds.join(','));
+      skinUnlockQueue.push(skin.id);
+    }
+  }
+
+  missionQueue.push(mission.id);
+  playSe('achievement');
+}
+
+function checkMissions() {
+  MISSIONS.forEach((mission) => {
+    if (mission.completed) {
+      return;
+    }
+    if (getMissionProgress(mission) >= mission.target) {
+      completeMission(mission);
+    }
   });
 }
 
@@ -962,6 +1083,16 @@ function handleModeSelectKey(code) {
   playSe('select');
 }
 
+function handleMissionsKey(code) {
+  if (code === 'ArrowUp') {
+    missionIndex = (missionIndex - 1 + MISSIONS.length) % MISSIONS.length;
+    return;
+  }
+  if (code === 'ArrowDown') {
+    missionIndex = (missionIndex + 1) % MISSIONS.length;
+  }
+}
+
 function handleSkinsKey(code) {
   if (code === 'ArrowLeft') {
     skinIndex = (skinIndex - 1 + SKINS.length) % SKINS.length;
@@ -1010,7 +1141,7 @@ function handleSettingsKey(code) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect') {
+    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions') {
       goToTitle();
     }
     return;
@@ -1055,6 +1186,16 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.code === 'KeyC') {
+    if (gameState === 'title') {
+      gameState = 'missions';
+      playSe('select');
+    } else if (gameState === 'missions') {
+      goToTitle();
+    }
+    return;
+  }
+
   if (e.code === 'KeyP') {
     if (gameState === 'playing') {
       gameState = 'paused';
@@ -1082,6 +1223,11 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
     }
     handleModeSelectKey(e.code);
+    return;
+  }
+
+  if (gameState === 'missions') {
+    handleMissionsKey(e.code);
     return;
   }
 
@@ -1151,6 +1297,18 @@ function update() {
     const id = skinUnlockQueue.shift();
     const skin = SKINS.find((s) => s.id === id);
     currentSkinUnlockNotice = { name: skin.name, timer: SKIN_UNLOCK_NOTICE_DURATION };
+  }
+
+  if (currentMissionNotice) {
+    currentMissionNotice.timer -= 1;
+    if (currentMissionNotice.timer <= 0) {
+      currentMissionNotice = null;
+    }
+  }
+  if (!currentMissionNotice && missionQueue.length > 0) {
+    const id = missionQueue.shift();
+    const mission = MISSIONS.find((m) => m.id === id);
+    currentMissionNotice = { title: mission.title, timer: MISSION_NOTICE_DURATION };
   }
 
   if (gameState !== 'playing') {
@@ -1291,6 +1449,8 @@ function update() {
   if (isColliding(player, obstacle)) {
     if (shieldTimer > 0) {
       shieldTimer = 0;
+      shieldSaveCount += 1;
+      saveMissionData();
       spawnFishSparkles(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2, COLOR_CYAN);
       randomizeObstacle();
     } else {
@@ -1307,7 +1467,11 @@ function update() {
         highScoreGlowTimer = HIGH_SCORE_GLOW_DURATION;
         isNewRecord = true;
       }
+      if (currentMode.id === 'hard' && score > bestHardScore) {
+        bestHardScore = score;
+      }
       checkSkinUnlocks();
+      checkMissions();
       return;
     }
   }
@@ -2205,6 +2369,30 @@ function drawSkinUnlockNotice() {
   ctx.restore();
 }
 
+function drawMissionNotice() {
+  if (!currentMissionNotice) {
+    return;
+  }
+  const t = currentMissionNotice.timer;
+  const fadeIn = Math.min(1, (MISSION_NOTICE_DURATION - t) / MISSION_NOTICE_FADE_FRAMES);
+  const fadeOut = Math.min(1, t / MISSION_NOTICE_FADE_FRAMES);
+  const alpha = Math.min(fadeIn, fadeOut);
+  const baseY = 28 + (currentAchievementNotice ? 58 : 0) + (currentSkinUnlockNotice ? 58 : 0);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'right';
+  ctx.shadowColor = COLOR_GOLD;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = COLOR_GOLD;
+  ctx.font = '14px Orbitron, sans-serif';
+  ctx.fillText('MISSION COMPLETE!', canvas.width - 20, baseY);
+  ctx.fillStyle = COLOR_CYAN;
+  ctx.font = '18px Orbitron, sans-serif';
+  ctx.fillText(currentMissionNotice.title, canvas.width - 20, baseY + 22);
+  ctx.restore();
+}
+
 function drawComboPopup() {
   if (comboPopupTimer <= 0 || comboCount < 2) {
     return;
@@ -2344,8 +2532,9 @@ function render() {
     drawCenteredText('SPACE : START', canvas.height / 2 + 38, 14, COLOR_PURPLE);
     drawCenteredText('M : MODE', canvas.height / 2 + 55, 14, COLOR_PURPLE);
     drawCenteredText('K : SKINS', canvas.height / 2 + 72, 14, COLOR_PURPLE);
-    drawCenteredText('S : SETTINGS', canvas.height / 2 + 89, 14, COLOR_PURPLE);
-    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 106, 14, COLOR_PURPLE);
+    drawCenteredText('C : MISSIONS', canvas.height / 2 + 89, 14, COLOR_PURPLE);
+    drawCenteredText('S : SETTINGS', canvas.height / 2 + 106, 14, COLOR_PURPLE);
+    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 123, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -2416,6 +2605,21 @@ function render() {
     drawCenteredText('< ' + (modeIndex + 1) + ' / ' + GAME_MODES.length + ' >', canvas.height / 2 + 50, 16, COLOR_WHITE);
     drawCenteredText('ARROWS : SWITCH   SPACE : SELECT', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / M : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+  } else if (gameState === 'missions') {
+    const mission = MISSIONS[missionIndex];
+    const progress = Math.min(getMissionProgress(mission), mission.target);
+
+    drawCenteredText('MISSIONS', canvas.height / 2 - 150, 26);
+    drawCenteredText(mission.title, canvas.height / 2 - 104, 22, mission.completed ? COLOR_GOLD : COLOR_WHITE);
+    drawCenteredText(mission.description, canvas.height / 2 - 76, 14, COLOR_WHITE);
+
+    drawCenteredText('PROGRESS: ' + progress + ' / ' + mission.target, canvas.height / 2 - 44, 16, COLOR_CYAN);
+    drawCenteredText(mission.completed ? 'COMPLETED' : 'INCOMPLETE', canvas.height / 2 - 20, 14, mission.completed ? COLOR_GOLD : COLOR_MAGENTA);
+    drawCenteredText('REWARD: ' + getMissionRewardLabel(mission), canvas.height / 2 + 6, 14, COLOR_WHITE);
+
+    drawCenteredText('< ' + (missionIndex + 1) + ' / ' + MISSIONS.length + ' >', canvas.height / 2 + 36, 16, COLOR_WHITE);
+    drawCenteredText('ARROWS : SELECT', canvas.height / 2 + 110, 14, COLOR_PURPLE);
+    drawCenteredText('ESC / C : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
     drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);
@@ -2447,6 +2651,7 @@ function render() {
 
   drawAchievementNotice();
   drawSkinUnlockNotice();
+  drawMissionNotice();
 }
 
 function loop() {

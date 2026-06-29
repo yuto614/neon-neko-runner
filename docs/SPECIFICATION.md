@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.5）
+# NEON NEKO RUNNER 仕様書（Version 1.6）
 
 ## ゲーム概要
 
@@ -42,7 +42,7 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 
 ## ゲームルール
 
-* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect`）
+* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect` / `missions`）
 * プレイ中は自動で前進し、障害物に衝突すると `gameover` になる
 * スコアは生存時間・ニアミス・魚の収集によって加算される
 * ハイスコアや収集データは `localStorage` に保存され、次回プレイ以降も保持される
@@ -58,8 +58,9 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | S キー | タイトル画面から設定画面の表示 |
 | K キー | タイトル画面からスキン選択画面の表示 |
 | M キー | タイトル画面からモード選択画面の表示 |
-| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面からタイトルへ戻る |
-| ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 |
+| C キー | タイトル画面からミッション画面の表示 |
+| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面・ミッション画面からタイトルへ戻る |
+| ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 / ミッション画面でミッションを切替 |
 | ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 |
 | スペースキー | スキン選択画面で装備（未解放スキンは装備不可） / モード選択画面でモードを選択 |
 
@@ -178,6 +179,7 @@ PC・モバイルの両方に対応。
   * `SPACE : START`
   * `M : MODE`
   * `K : SKINS`
+  * `C : MISSIONS`
   * `S : SETTINGS`
   * `A : ACHIEVEMENTS`
 * 現在選択中のゲームモード名を「MODE : CLASSIC」のように表示
@@ -277,6 +279,29 @@ PC・モバイルの両方に対応。
 * タイトル画面に現在選択中のモード名（例: 「MODE : CLASSIC」）を表示
 * 選択中のモードIDは `localStorage` に保存し、起動時に読み込む
 
+## ミッションシステム（Challenge Missions Update）
+
+* 実績（Achievements）とは別の、ゲームプレイの目標となるミッションシステムを搭載
+* ミッションは配列（`MISSIONS`）でデータ管理し、各ミッションは `id` / `title` / `description` / `type` / `target` / `rewardType` / `rewardValue` / `completed` を持つ。新しいミッションを追加する場合は配列へ要素を追加し、`type` に応じた進捗の取得処理（`getMissionProgress`）を1箇所増やすだけでよい
+
+| ミッション | 説明 | 進捗の種類 | 目標 | 報酬 |
+| --- | --- | --- | --- | --- |
+| Fish Collector | 魚を100匹集める（累計） | `totalFish`（累計魚取得数） | 100 | Pink Cat（スキン解放） |
+| Hard Challenger | Hardモードで5000点達成 | `hardScore`（Hardモードでの自己最高スコア） | 5000 | 500 Bonus Score（表示のみ、実際のスコアには加算されない） |
+| Rare Hunter | 累計レア魚20匹 | `rareFish`（累計レア魚取得数） | 20 | Golden Cat（スキン解放） |
+| Survivor | Shieldで5回ゲームオーバーを防ぐ | `shieldSaves`（Shieldが障害物衝突を無効化した回数） | 5 | Shadow Cat（スキン解放） |
+
+* 進捗の判定はゲームオーバー時に実行する（`checkMissions()`）。判定対象の累計値自体は、魚取得・レア魚取得・Shield発動などのタイミングで即時更新・保存される
+* 報酬がスキンの場合、未解放であればそのタイミングでスキンを解放し、既存のスキン解放通知（NEW SKIN!）も表示される。スキン側の解放条件（ハイスコア / レア魚数 / 全実績解除）を満たして先に解放されていた場合は、ミッション側の報酬は何も行わない（二重解放はしない）
+* ミッション画面（`gameState = 'missions'`、タイトル画面から C キーで遷移）
+  * ↑ / ↓ キーでミッションを切替表示
+  * タイトル・説明・進捗（現在値 / 目標値）・達成状況（COMPLETED / INCOMPLETE）・報酬を表示
+  * ESC キー / C キーでタイトル画面へ戻る
+* 達成時は画面右上に「MISSION COMPLETE!」とミッション名を表示する（実績解除・スキン解放と同じ通知キュー方式を流用し、複数同時表示時は縦に並べて表示）
+* 達成済みミッションID・Hardモードの自己最高スコア・Shieldでのゲームオーバー回避回数は `localStorage`（`cat-game-missions`）にまとめて保存し、起動時に読み込む
+* 既存の実績システム（`ACHIEVEMENTS` / `checkAchievements`）とは独立しており、互いに影響しない
+* レベルシステム・難易度・既存のゲームバランスには影響しない
+
 ## モバイル対応
 
 * `viewport` メタタグで画面幅に追従
@@ -298,6 +323,7 @@ PC・モバイルの両方に対応。
 | `cat-game-selected-skin` | 装備中のスキンID |
 | `cat-game-unlocked-skins` | 解放済みスキンID（カンマ区切り） |
 | `cat-game-selected-mode` | 選択中のゲームモードID |
+| `cat-game-missions` | ミッション関連データ（達成済みID・Hard自己最高スコア・Shield回避回数をJSONで保存） |
 
 ## パフォーマンス方針
 

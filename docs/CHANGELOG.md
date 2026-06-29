@@ -2,6 +2,18 @@
 
 NEON NEKO RUNNER のバージョン履歴です。
 
+## v1.6「Challenge Missions Update」
+
+* 実績（Achievements）とは別のミッションシステムを追加（Fish Collector / Hard Challenger / Rare Hunter / Survivor の4種類）
+* ミッションは配列(`MISSIONS`)でデータ管理し、`id` / `title` / `description` / `type` / `target` / `rewardType` / `rewardValue` / `completed` を持つ構造に（今後の追加は配列への要素追加と`type`分岐の追加のみで対応可能）
+* ミッション画面(MISSIONS)を追加し、タイトル画面からCキーで遷移可能に。↑↓でミッション切替、タイトル・説明・進捗・達成状況・報酬を表示
+* Fish Collector: 累計魚100匹でPink Catを解放 / Rare Hunter: 累計レア魚20匹でGolden Catを解放 / Survivor: Shieldでゲームオーバーを5回防いでShadow Catを解放
+* Hard Challenger: Hardモードでスコア5000達成で「+500 Bonus Score」を表示（実際のスコアには加算されない表示のみの報酬）
+* ミッション報酬のスキンは未解放の場合のみ解放し、既存のスキン解放通知（NEW SKIN!）も連動する。スキン側の条件で先に解放済みの場合は二重解放しない
+* 達成時は画面右上に「MISSION COMPLETE!」を表示（実績解除・スキン解放と同じ通知キュー方式を流用）
+* 進捗判定はゲームオーバー時に実行。Hardモードの自己最高スコア・Shieldでのゲームオーバー回避回数・達成済みミッションIDを`cat-game-missions`に保存し、起動時に読み込む
+* 既存の実績システムには影響しない。レベルシステム・ゲームバランス・既存操作に変更なし
+
 ## v1.5「Game Modes Update」
 
 * ゲーム開始前にプレイスタイルを選べるモード選択システムを追加（Classic / Hard の2種類）
