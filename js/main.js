@@ -11,6 +11,7 @@ const BGM_ENABLED_KEY = 'cat-game-bgm-enabled';
 const SE_ENABLED_KEY = 'cat-game-se-enabled';
 const SELECTED_SKIN_KEY = 'cat-game-selected-skin';
 const UNLOCKED_SKINS_KEY = 'cat-game-unlocked-skins';
+const SELECTED_MODE_KEY = 'cat-game-selected-mode';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -306,6 +307,36 @@ function selectSkin(skin) {
   localStorage.setItem(SELECTED_SKIN_KEY, skin.id);
 }
 
+const GAME_MODES = [
+  {
+    id: 'classic',
+    name: 'Classic',
+    description: 'Standard gameplay.',
+    obstacleSpeedMultiplier: 1,
+    fishSpeedMultiplier: 1,
+    itemSpeedMultiplier: 1,
+    scoreMultiplier: 1,
+  },
+  {
+    id: 'hard',
+    name: 'Hard',
+    description: 'Faster and more challenging.',
+    obstacleSpeedMultiplier: 1.25,
+    fishSpeedMultiplier: 1.15,
+    itemSpeedMultiplier: 1.15,
+    scoreMultiplier: 1.5,
+  },
+];
+
+const storedModeId = localStorage.getItem(SELECTED_MODE_KEY);
+let currentMode = GAME_MODES.find((mode) => mode.id === storedModeId) || GAME_MODES[0];
+let modeIndex = Math.max(0, GAME_MODES.findIndex((mode) => mode.id === currentMode.id));
+
+function selectMode(mode) {
+  currentMode = mode;
+  localStorage.setItem(SELECTED_MODE_KEY, mode.id);
+}
+
 function getSkinUnlockHint(skin) {
   if (skin.unlockType === 'score') {
     return 'SCORE ' + skin.unlockValue + '+';
@@ -420,7 +451,9 @@ function getItemSpeedFactor() {
 }
 
 function addScore(amount) {
-  const actual = scoreBoostTimer > 0 ? amount * 2 : amount;
+  const boosted = scoreBoostTimer > 0 ? amount * 2 : amount;
+  rawScoreForLevel += boosted;
+  const actual = Math.round(boosted * currentMode.scoreMultiplier);
   score += actual;
   return actual;
 }
@@ -517,6 +550,9 @@ const buildings = Array.from({ length: BUILDING_COUNT }, () => makeBuilding());
 
 let gameState = 'title';
 let score = 0;
+// レベル・障害物速度カーブはモードのスコア倍率を含まない素点で判定し、
+// Hard モードでもレベルアップの実時間ペースをClassicと一致させる
+let rawScoreForLevel = 0;
 let level = 1;
 let highScore = Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
 let totalFishCount = Number(localStorage.getItem(TOTAL_FISH_KEY)) || 0;
@@ -821,6 +857,7 @@ function startGame() {
 
   obstacleSpeed = BASE_OBSTACLE_SPEED;
   score = 0;
+  rawScoreForLevel = 0;
   level = 1;
   trail.length = 0;
   particles.length = 0;
@@ -909,6 +946,22 @@ function goToTitle() {
   checkSkinUnlocks();
 }
 
+function handleModeSelectKey(code) {
+  if (code === 'ArrowUp') {
+    modeIndex = (modeIndex - 1 + GAME_MODES.length) % GAME_MODES.length;
+    return;
+  }
+  if (code === 'ArrowDown') {
+    modeIndex = (modeIndex + 1) % GAME_MODES.length;
+    return;
+  }
+  if (code !== 'Space') {
+    return;
+  }
+  selectMode(GAME_MODES[modeIndex]);
+  playSe('select');
+}
+
 function handleSkinsKey(code) {
   if (code === 'ArrowLeft') {
     skinIndex = (skinIndex - 1 + SKINS.length) % SKINS.length;
@@ -957,7 +1010,7 @@ function handleSettingsKey(code) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins') {
+    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect') {
       goToTitle();
     }
     return;
@@ -992,6 +1045,16 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.code === 'KeyM') {
+    if (gameState === 'title') {
+      gameState = 'modeSelect';
+      playSe('select');
+    } else if (gameState === 'modeSelect') {
+      goToTitle();
+    }
+    return;
+  }
+
   if (e.code === 'KeyP') {
     if (gameState === 'playing') {
       gameState = 'paused';
@@ -1011,6 +1074,14 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
     }
     handleSkinsKey(e.code);
+    return;
+  }
+
+  if (gameState === 'modeSelect') {
+    if (e.code === 'Space') {
+      e.preventDefault();
+    }
+    handleModeSelectKey(e.code);
     return;
   }
 
@@ -1194,7 +1265,7 @@ function update() {
 
   maybeSpawnFish();
   if (fish.active) {
-    fish.x -= obstacleSpeed * itemSpeedFactor;
+    fish.x -= obstacleSpeed * itemSpeedFactor * currentMode.fishSpeedMultiplier;
     if (fish.x + fish.width < 0) {
       fish.active = false;
     }
@@ -1204,7 +1275,7 @@ function update() {
 
   maybeSpawnItem();
   if (item.active) {
-    item.x -= obstacleSpeed * itemSpeedFactor;
+    item.x -= obstacleSpeed * itemSpeedFactor * currentMode.itemSpeedMultiplier;
     if (item.x + item.width < 0) {
       item.active = false;
     }
@@ -1212,7 +1283,7 @@ function update() {
   checkItemCollision();
 
   // speedMultiplierは障害物ごとの見た目の速度差のみに使い、難易度カーブ(obstacleSpeed)には影響させない
-  obstacle.x -= obstacleSpeed * obstacle.speedMultiplier * itemSpeedFactor;
+  obstacle.x -= obstacleSpeed * obstacle.speedMultiplier * itemSpeedFactor * currentMode.obstacleSpeedMultiplier;
   if (obstacle.x + obstacle.width < 0) {
     randomizeObstacle();
   }
@@ -1246,7 +1317,7 @@ function update() {
   addScore(1);
 
   const previousLevel = level;
-  level = Math.floor(score / 1000) + 1;
+  level = Math.floor(rawScoreForLevel / 1000) + 1;
   if (level !== previousLevel) {
     levelUpTimer = LEVEL_UP_DURATION;
     triggerHitStop(HIT_STOP_LEVEL_UP);
@@ -1263,7 +1334,7 @@ function update() {
   checkAchievements();
 
   const maxSpeedForLevel = Math.min(ABSOLUTE_MAX_OBSTACLE_SPEED, MAX_OBSTACLE_SPEED + (level - 1) * LEVEL_SPEED_BONUS);
-  obstacleSpeed = Math.min(maxSpeedForLevel, BASE_OBSTACLE_SPEED + score * SPEED_PER_SCORE);
+  obstacleSpeed = Math.min(maxSpeedForLevel, BASE_OBSTACLE_SPEED + rawScoreForLevel * SPEED_PER_SCORE);
 }
 
 function getSkyColors() {
@@ -1861,9 +1932,12 @@ function drawHud() {
 
   ctx.fillText('FISH: ' + fishCollectedThisRun, 20, 100);
 
+  ctx.fillStyle = COLOR_CYAN;
+  ctx.fillText('MODE: ' + currentMode.name.toUpperCase(), 20, 124);
+
   if (comboCount > 0) {
     ctx.fillStyle = getComboTier(comboCount).color;
-    ctx.fillText('COMBO x' + comboCount, 20, 124);
+    ctx.fillText('COMBO x' + comboCount, 20, 148);
   }
 }
 
@@ -2265,11 +2339,13 @@ function render() {
     drawCenteredText('BEST SCORE: ' + highScore, canvas.height / 2 - 48, 16);
     drawCenteredText('TOTAL FISH: ' + totalFishCount, canvas.height / 2 - 26, 16);
     drawCenteredText('ACHIEVEMENTS ' + unlockedAchievements.length + ' / ' + ACHIEVEMENTS.length + ' UNLOCKED', canvas.height / 2 - 4, 16);
+    drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 + 14, 16, COLOR_GOLD);
 
-    drawCenteredText('SPACE : START', canvas.height / 2 + 24, 14, COLOR_PURPLE);
-    drawCenteredText('S : SETTINGS', canvas.height / 2 + 41, 14, COLOR_PURPLE);
-    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 58, 14, COLOR_PURPLE);
-    drawCenteredText('K : SKINS', canvas.height / 2 + 75, 14, COLOR_PURPLE);
+    drawCenteredText('SPACE : START', canvas.height / 2 + 38, 14, COLOR_PURPLE);
+    drawCenteredText('M : MODE', canvas.height / 2 + 55, 14, COLOR_PURPLE);
+    drawCenteredText('K : SKINS', canvas.height / 2 + 72, 14, COLOR_PURPLE);
+    drawCenteredText('S : SETTINGS', canvas.height / 2 + 89, 14, COLOR_PURPLE);
+    drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 106, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -2324,6 +2400,22 @@ function render() {
     drawCenteredText('< ' + (skinIndex + 1) + ' / ' + SKINS.length + ' >', canvas.height / 2 + 30, 16, COLOR_WHITE);
     drawCenteredText('ARROWS : SWITCH   SPACE : EQUIP', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / K : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+  } else if (gameState === 'modeSelect') {
+    const mode = GAME_MODES[modeIndex];
+    const isSelected = currentMode.id === mode.id;
+
+    drawCenteredText('MODE SELECT', canvas.height / 2 - 150, 26);
+
+    drawCenteredText(mode.name.toUpperCase(), canvas.height / 2 - 40, 24, COLOR_WHITE);
+    drawCenteredText(mode.description, canvas.height / 2 - 10, 14, COLOR_WHITE);
+
+    if (isSelected) {
+      drawCenteredText('SELECTED', canvas.height / 2 + 20, 14, COLOR_GOLD);
+    }
+
+    drawCenteredText('< ' + (modeIndex + 1) + ' / ' + GAME_MODES.length + ' >', canvas.height / 2 + 50, 16, COLOR_WHITE);
+    drawCenteredText('ARROWS : SWITCH   SPACE : SELECT', canvas.height / 2 + 110, 14, COLOR_PURPLE);
+    drawCenteredText('ESC / M : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 10, 32);
     drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 22, 18);

@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.4）
+# NEON NEKO RUNNER 仕様書（Version 1.5）
 
 ## ゲーム概要
 
@@ -42,7 +42,7 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 
 ## ゲームルール
 
-* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins`）
+* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect`）
 * プレイ中は自動で前進し、障害物に衝突すると `gameover` になる
 * スコアは生存時間・ニアミス・魚の収集によって加算される
 * ハイスコアや収集データは `localStorage` に保存され、次回プレイ以降も保持される
@@ -57,10 +57,11 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | A キー | タイトル画面から実績一覧の表示 |
 | S キー | タイトル画面から設定画面の表示 |
 | K キー | タイトル画面からスキン選択画面の表示 |
-| ESC キー | 実績一覧・設定画面・スキン選択画面からタイトルへ戻る |
-| ↑ / ↓ キー | 設定画面で項目を選択 |
+| M キー | タイトル画面からモード選択画面の表示 |
+| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面からタイトルへ戻る |
+| ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 |
 | ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 |
-| スペースキー | スキン選択画面で装備（未解放スキンは装備不可） |
+| スペースキー | スキン選択画面で装備（未解放スキンは装備不可） / モード選択画面でモードを選択 |
 
 PC・モバイルの両方に対応。
 
@@ -103,9 +104,9 @@ PC・モバイルの両方に対応。
 
 ## レベルシステム
 
-* `level = floor(score / 1000) + 1` で算出
+* `level = floor(rawScoreForLevel / 1000) + 1` で算出（モードのスコア倍率を含まない素点を使用。詳細は後述「ゲームモード」参照）
 * レベルアップ時: ヒットストップ・画面シェイク・リング演出・「LEVEL UP!」テキストを表示
-* 障害物速度: `BASE_OBSTACLE_SPEED(4)` からスコアに応じて加速し、レベルに応じた上限（最大 `ABSOLUTE_MAX_OBSTACLE_SPEED = 14`）まで上昇する
+* 障害物速度: `BASE_OBSTACLE_SPEED(4)` から `rawScoreForLevel` に応じて加速し、レベルに応じた上限（最大 `ABSOLUTE_MAX_OBSTACLE_SPEED = 14`）まで上昇する
 * 障害物の種類解放
   * レベル1〜2: `block` のみ
   * レベル3〜4: `block` / `yarn` / `bone` / `vacuum`
@@ -122,6 +123,7 @@ PC・モバイルの両方に対応。
 * 生存時間に応じて1フレームごとに+1
 * ニアミス成功時・魚収集時にボーナス加算（後述）
 * Score Boost取得中はすべてのスコア加算（生存時間・ニアミス・魚収集）が2倍になる（後述「アイテムシステム」参照）
+* Hardモード選択中はすべてのスコア加算が1.5倍になる（後述「ゲームモード」参照）。Score Boostと同時に有効な場合は両方の倍率が掛け合わされる
 * マイルストーン: スコア 1000 / 3000 / 5000 / 10000 到達時に「MILESTONE!」テキストを表示
 * ハイスコアは `localStorage` に保存し、更新時はゲームオーバー画面に「NEW RECORD!」を表示
 
@@ -174,9 +176,11 @@ PC・モバイルの両方に対応。
 * ゲーム内容（COLLECT FISH、AVOID OBSTACLES）とベストスコア・累計魚取得数・実績解除数を表示
 * 操作説明を以下の形式で表示
   * `SPACE : START`
+  * `M : MODE`
+  * `K : SKINS`
   * `S : SETTINGS`
   * `A : ACHIEVEMENTS`
-  * `K : SKINS`
+* 現在選択中のゲームモード名を「MODE : CLASSIC」のように表示
 
 ## GAME OVER画面
 
@@ -250,6 +254,29 @@ PC・モバイルの両方に対応。
 * 複数の効果は同時に有効化できる（例: Shield + Magnetを同時に保持した状態でSlow Timeを取得するなど）
 * レベルシステム・難易度・既存のゲームバランスには影響しない
 
+## ゲームモード（Game Modes Update）
+
+* ゲーム開始前にプレイスタイルを選べるモードシステムを搭載
+* モードは配列（`GAME_MODES`）でデータ管理し、各モードは `id` / `name` / `description` / `obstacleSpeedMultiplier` / `fishSpeedMultiplier` / `itemSpeedMultiplier` / `scoreMultiplier` を持つ。新しいモードを追加する場合は配列へ要素を追加するだけでよい
+
+| モード名 | 説明 | 障害物速度 | 魚速度 | アイテム速度 | スコア倍率 |
+| --- | --- | --- | --- | --- | --- |
+| Classic | Standard gameplay. | ×1.0 | ×1.0 | ×1.0 | ×1.0 |
+| Hard | Faster and more challenging. | ×1.25 | ×1.15 | ×1.15 | ×1.5 |
+
+* Classicは全倍率が1.0倍のため、Version 1.4までの挙動と完全に一致する
+* モード選択画面（`gameState = 'modeSelect'`、タイトル画面から M キーで遷移）
+  * ↑ / ↓ キーでモードを切替表示
+  * スペースキーで選択（即座に反映され、`localStorage` に保存）
+  * モード名・説明文・選択中表示（SELECTED）を表示
+  * ESC キー / M キーでタイトル画面へ戻る
+* レベル算出（`level`）と障害物速度の自動加速カーブ（スコアに応じて上昇する`obstacleSpeed`の基準値）は、スコア倍率を含まない素点（`rawScoreForLevel`）で判定する。これにより、Hardモードでもレベルアップの実時間ペースはClassicと一致し、スコア倍率の影響は表示スコア・ハイスコア・実績・マイルストーンにのみ及ぶ
+* Score Boostアイテムの2倍効果は `rawScoreForLevel` にも反映されるため、Version 1.4までと同様にレベルアップを加速させる（モードのスコア倍率とは独立）
+* ゲーム開始時に選択中のモードを適用し、プレイ中の変更はできない（モード選択画面はタイトルからのみ遷移可能なため）
+* HUD左上に「MODE: CLASSIC」または「MODE: HARD」を常時表示
+* タイトル画面に現在選択中のモード名（例: 「MODE : CLASSIC」）を表示
+* 選択中のモードIDは `localStorage` に保存し、起動時に読み込む
+
 ## モバイル対応
 
 * `viewport` メタタグで画面幅に追従
@@ -270,6 +297,7 @@ PC・モバイルの両方に対応。
 | `cat-game-se-enabled` | SE ON/OFF（`true` / `false`） |
 | `cat-game-selected-skin` | 装備中のスキンID |
 | `cat-game-unlocked-skins` | 解放済みスキンID（カンマ区切り） |
+| `cat-game-selected-mode` | 選択中のゲームモードID |
 
 ## パフォーマンス方針
 

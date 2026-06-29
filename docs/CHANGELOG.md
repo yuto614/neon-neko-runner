@@ -2,6 +2,19 @@
 
 NEON NEKO RUNNER のバージョン履歴です。
 
+## v1.5「Game Modes Update」
+
+* ゲーム開始前にプレイスタイルを選べるモード選択システムを追加（Classic / Hard の2種類）
+* モードは配列(`GAME_MODES`)でデータ管理し、`id` / `name` / `description` / `obstacleSpeedMultiplier` / `fishSpeedMultiplier` / `itemSpeedMultiplier` / `scoreMultiplier` を持つ構造に（今後の追加は配列への要素追加のみで対応可能）
+* モード選択画面(MODE SELECT)を追加し、タイトル画面からMキーで遷移可能に。↑↓でモード切替、SPACEで選択
+* Classic: Version1.4までと完全に同じ挙動（全倍率1.0倍）
+* Hard: 障害物速度+25% / 魚速度+15% / アイテム速度+15% / スコア倍率1.5倍を適用
+* レベル算出・障害物速度の自動加速カーブはスコア倍率を含まない素点(`rawScoreForLevel`)で判定し、Hardモードでもレベルアップの実時間ペースをClassicと一致させる
+* タイトル画面に選択中のモード名（例: 「MODE : CLASSIC」）を表示し、操作説明に「M : MODE」を追加
+* HUD左上に「MODE: CLASSIC」/「MODE: HARD」を常時表示
+* 選択中のモードIDを`localStorage`に保存し、起動時に読み込み・ゲーム開始時に適用（プレイ中の変更は不可）
+* 既存のジャンプ操作・難易度カーブの定数・実績/スキン/アイテムシステムに変更なし
+
 ## v1.4「Power-Up Update Part 2」
 
 * アイテムシステムにScore Boost（ゴールド・10秒）とSlow Time（ライトブルー・6秒）を追加し、4種類に拡張
