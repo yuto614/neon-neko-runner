@@ -2,6 +2,20 @@
 
 NEON NEKO RUNNER のバージョン履歴です。
 
+## v1.8「Time Attack & Rankings Update」
+
+* 新しいゲームモード「Time Attack」を追加（`GAME_MODES`に要素を追加するだけで実装。既存のClassic・Hardは変更なし）
+* Time Attackは60秒の制限時間付き。速度・スコア倍率はClassicと同じ（×1.0）で、Hard要素は適用しない
+* モードデータに `timeLimit`（秒単位、無制限のモードは`null`）フィールドを追加し、将来の時間制限モード追加にも対応できる汎用構造に
+* プレイ中はHUD左上に残り秒数「TIME: 60」を表示し、1秒ごとに60→59→58…と減算
+* 残り時間が0になると、障害物衝突によるゲームオーバーではなく「TIME UP!」としてリザルト画面へ遷移（`isTimeUp`フラグで区別）。衝突による終了時は通常通り「GAME OVER」のまま
+* Time Attackのリザルト画面はSCORE / HIGH SCORE / FISH / RARE FISH / MODEを表示するよう拡張（Classic・Hardのリザルト画面表示は変更なし）
+* Time Attack専用ランキング（上位5件、スコア降順）を追加。終了時（時間切れ・衝突どちらも）にスコアを自動登録し、`cat-game-timeattack-ranking`にJSON保存
+* ランキング画面(RANKING)を追加し、タイトル画面からRキーで遷移可能に。1位〜5位のスコア・記録日を表示
+* タイトル画面の操作説明に「R : RANKING」を追加
+* モード選択画面でClassic / Hard / Time Attackの3モードを表示
+* 既存モード・既存システムには影響なし
+
 ## v1.7「Visual & UX Refresh」
 
 * ゲーム内容・ゲームバランスは変更せず、UI・演出・操作体験のみを改善

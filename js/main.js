@@ -13,6 +13,7 @@ const SELECTED_SKIN_KEY = 'cat-game-selected-skin';
 const UNLOCKED_SKINS_KEY = 'cat-game-unlocked-skins';
 const SELECTED_MODE_KEY = 'cat-game-selected-mode';
 const MISSIONS_KEY = 'cat-game-missions';
+const TIMEATTACK_RANKING_KEY = 'cat-game-timeattack-ranking';
 
 const COLOR_CYAN = '#00f6ff';
 const COLOR_MAGENTA = '#ff2d95';
@@ -318,6 +319,7 @@ const GAME_MODES = [
     fishSpeedMultiplier: 1,
     itemSpeedMultiplier: 1,
     scoreMultiplier: 1,
+    timeLimit: null,
   },
   {
     id: 'hard',
@@ -327,6 +329,17 @@ const GAME_MODES = [
     fishSpeedMultiplier: 1.15,
     itemSpeedMultiplier: 1.15,
     scoreMultiplier: 1.5,
+    timeLimit: null,
+  },
+  {
+    id: 'timeAttack',
+    name: 'Time Attack',
+    description: 'Score as much as possible before time runs out.',
+    obstacleSpeedMultiplier: 1,
+    fishSpeedMultiplier: 1,
+    itemSpeedMultiplier: 1,
+    scoreMultiplier: 1,
+    timeLimit: 60,
   },
 ];
 
@@ -337,6 +350,16 @@ let modeIndex = Math.max(0, GAME_MODES.findIndex((mode) => mode.id === currentMo
 function selectMode(mode) {
   currentMode = mode;
   localStorage.setItem(SELECTED_MODE_KEY, mode.id);
+}
+
+const TIMEATTACK_RANKING_SIZE = 5;
+let timeAttackRanking = JSON.parse(localStorage.getItem(TIMEATTACK_RANKING_KEY) || '[]');
+
+function submitTimeAttackRanking(finalScore) {
+  timeAttackRanking.push({ score: finalScore, date: new Date().toISOString().slice(0, 10) });
+  timeAttackRanking.sort((a, b) => b.score - a.score);
+  timeAttackRanking = timeAttackRanking.slice(0, TIMEATTACK_RANKING_SIZE);
+  localStorage.setItem(TIMEATTACK_RANKING_KEY, JSON.stringify(timeAttackRanking));
 }
 
 function getSkinUnlockHint(skin) {
@@ -693,6 +716,9 @@ let totalFishCount = Number(localStorage.getItem(TOTAL_FISH_KEY)) || 0;
 let rareFishCount = Number(localStorage.getItem(RARE_FISH_KEY)) || 0;
 let unlockedAchievements = (localStorage.getItem(ACHIEVEMENTS_KEY) || '').split(',').filter(Boolean);
 let fishCollectedThisRun = 0;
+let rareFishCollectedThisRun = 0;
+let timeRemainingFrames = 0;
+let isTimeUp = false;
 let obstacleSpeed = BASE_OBSTACLE_SPEED;
 let trail = [];
 let particles = [];
@@ -881,6 +907,7 @@ function checkFishCollision() {
   totalFishCount += 1;
   if (fish.isRare) {
     rareFishCount += 1;
+    rareFishCollectedThisRun += 1;
   }
   localStorage.setItem(TOTAL_FISH_KEY, String(totalFishCount));
   localStorage.setItem(RARE_FISH_KEY, String(rareFishCount));
@@ -925,6 +952,24 @@ function triggerHitStop(duration) {
 function triggerShake(duration, magnitude) {
   shakeTimer = Math.max(shakeTimer, duration);
   shakeMagnitude = Math.max(shakeMagnitude, magnitude);
+}
+
+function triggerTimeUp() {
+  gameState = 'gameover';
+  isTimeUp = true;
+  comboCount = 0;
+  comboTimer = 0;
+  playSe('gameOver');
+  playBgm('gameover');
+  if (score > highScore) {
+    highScore = score;
+    localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+    highScoreGlowTimer = HIGH_SCORE_GLOW_DURATION;
+    isNewRecord = true;
+  }
+  checkSkinUnlocks();
+  checkMissions();
+  submitTimeAttackRanking(score);
 }
 
 function getComboTier(count) {
@@ -1014,6 +1059,9 @@ function startGame() {
   holograms.length = 0;
   fish.active = false;
   fishCollectedThisRun = 0;
+  rareFishCollectedThisRun = 0;
+  isTimeUp = false;
+  timeRemainingFrames = currentMode.timeLimit ? currentMode.timeLimit * 60 : 0;
   item.active = false;
   itemSpawnTimer = ITEM_SPAWN_INTERVAL;
   shieldTimer = 0;
@@ -1154,7 +1202,7 @@ function handleSettingsKey(code) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
-    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions') {
+    if (gameState === 'achievements' || gameState === 'settings' || gameState === 'skins' || gameState === 'modeSelect' || gameState === 'missions' || gameState === 'ranking') {
       goToTitle();
     }
     return;
@@ -1204,6 +1252,16 @@ window.addEventListener('keydown', (e) => {
       gameState = 'missions';
       playSe('select');
     } else if (gameState === 'missions') {
+      goToTitle();
+    }
+    return;
+  }
+
+  if (e.code === 'KeyR') {
+    if (gameState === 'title') {
+      gameState = 'ranking';
+      playSe('select');
+    } else if (gameState === 'ranking') {
       goToTitle();
     }
     return;
@@ -1335,6 +1393,15 @@ function update() {
       s.y = randomRange(20, HORIZON_Y - 10);
     }
   });
+
+  if (currentMode.timeLimit) {
+    timeRemainingFrames -= 1;
+    if (timeRemainingFrames <= 0) {
+      timeRemainingFrames = 0;
+      triggerTimeUp();
+      return;
+    }
+  }
 
   if (levelUpTimer > 0) {
     levelUpTimer -= 1;
@@ -1490,6 +1557,9 @@ function update() {
       }
       if (currentMode.id === 'hard' && score > bestHardScore) {
         bestHardScore = score;
+      }
+      if (currentMode.id === 'timeAttack') {
+        submitTimeAttackRanking(score);
       }
       checkSkinUnlocks();
       checkMissions();
@@ -2132,9 +2202,16 @@ function drawHud() {
   ctx.fillStyle = COLOR_CYAN;
   ctx.fillText('MODE: ' + currentMode.name.toUpperCase(), 20, 124);
 
+  let nextLineY = 148;
+  if (currentMode.timeLimit) {
+    ctx.fillStyle = COLOR_CYAN;
+    ctx.fillText('TIME: ' + Math.ceil(timeRemainingFrames / 60), 20, nextLineY);
+    nextLineY += 24;
+  }
+
   if (comboCount > 0) {
     ctx.fillStyle = getComboTier(comboCount).color;
-    ctx.fillText('COMBO x' + comboCount, 20, 148);
+    ctx.fillText('COMBO x' + comboCount, 20, nextLineY);
   }
 }
 
@@ -2596,6 +2673,7 @@ function render() {
     drawCenteredText('C : MISSIONS', canvas.height / 2 + 86, 14, COLOR_PURPLE);
     drawCenteredText('S : SETTINGS', canvas.height / 2 + 102, 14, COLOR_PURPLE);
     drawCenteredText('A : ACHIEVEMENTS', canvas.height / 2 + 118, 14, COLOR_PURPLE);
+    drawCenteredText('R : RANKING', canvas.height / 2 + 134, 14, COLOR_PURPLE);
   } else if (gameState === 'achievements') {
     drawCenteredText('ACHIEVEMENTS', canvas.height / 2 - 160, 26);
     ACHIEVEMENTS.forEach((a, i) => {
@@ -2687,11 +2765,44 @@ function render() {
     drawCenteredText('< ' + (missionIndex + 1) + ' / ' + MISSIONS.length + ' >', canvas.height / 2 + 36, 16, COLOR_WHITE);
     drawCenteredText('ARROWS : SELECT', canvas.height / 2 + 110, 14, COLOR_PURPLE);
     drawCenteredText('ESC / C : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
+  } else if (gameState === 'ranking') {
+    drawCenteredText('TIME ATTACK RANKING', canvas.height / 2 - 150, 24);
+
+    for (let i = 0; i < TIMEATTACK_RANKING_SIZE; i++) {
+      const entry = timeAttackRanking[i];
+      const y = canvas.height / 2 - 96 + i * 32;
+      if (entry) {
+        drawCenteredText((i + 1) + '.  ' + entry.score + '  ' + entry.date, y, 18, COLOR_WHITE);
+      } else {
+        drawCenteredText((i + 1) + '.  ---', y, 18, COLOR_PURPLE);
+      }
+    }
+
+    drawCenteredText('ESC / R : BACK', canvas.height / 2 + 132, 14, COLOR_PURPLE);
   } else if (gameState === 'paused') {
     drawCenteredText('PAUSED', canvas.height / 2 - 40, 32);
     drawCenteredText('MODE : ' + currentMode.name.toUpperCase(), canvas.height / 2 - 4, 16, COLOR_GOLD);
     drawCenteredText('SKIN : ' + currentSkin.name.toUpperCase(), canvas.height / 2 + 16, 16, currentSkin.color);
     drawCenteredText('PRESS P TO RESUME', canvas.height / 2 + 44, 18);
+  } else if (gameState === 'gameover' && currentMode.id === 'timeAttack') {
+    const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
+    if (blinkOn) {
+      drawCenteredText(isTimeUp ? 'TIME UP!' : 'GAME OVER', canvas.height / 2 - 70, 34);
+    }
+    if (isNewRecord) {
+      const pulse = 22 + Math.sin(performance.now() / 120) * 6;
+      ctx.save();
+      ctx.shadowColor = COLOR_GOLD;
+      ctx.shadowBlur = pulse;
+      drawCenteredText('NEW RECORD!', canvas.height / 2 - 40, 22, COLOR_GOLD);
+      ctx.restore();
+    }
+    drawCenteredText('SCORE: ' + score, canvas.height / 2 - 14, 18);
+    drawCenteredText('HIGH SCORE: ' + highScore, canvas.height / 2 + 6, 16);
+    drawCenteredText('FISH: ' + fishCollectedThisRun, canvas.height / 2 + 26, 16);
+    drawCenteredText('RARE FISH: ' + rareFishCollectedThisRun, canvas.height / 2 + 44, 16);
+    drawCenteredText('MODE: ' + currentMode.name.toUpperCase(), canvas.height / 2 + 62, 16, COLOR_GOLD);
+    drawCenteredText('SPACE TO RESTART', canvas.height / 2 + 88, 18);
   } else if (gameState === 'gameover') {
     const blinkOn = Math.floor(performance.now() / 400) % 2 === 0;
     if (blinkOn) {

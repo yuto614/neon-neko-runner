@@ -1,4 +1,4 @@
-# NEON NEKO RUNNER 仕様書（Version 1.7）
+# NEON NEKO RUNNER 仕様書（Version 1.8）
 
 ## ゲーム概要
 
@@ -42,7 +42,7 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 
 ## ゲームルール
 
-* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect` / `missions`）
+* `gameState` によるシンプルな状態管理（`title` / `playing` / `paused` / `gameover` / `achievements` / `settings` / `skins` / `modeSelect` / `missions` / `ranking`）
 * プレイ中は自動で前進し、障害物に衝突すると `gameover` になる
 * スコアは生存時間・ニアミス・魚の収集によって加算される
 * ハイスコアや収集データは `localStorage` に保存され、次回プレイ以降も保持される
@@ -59,7 +59,8 @@ docs/           # ドキュメント（本書・CHANGELOG・ROADMAP）
 | K キー | タイトル画面からスキン選択画面の表示 |
 | M キー | タイトル画面からモード選択画面の表示 |
 | C キー | タイトル画面からミッション画面の表示 |
-| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面・ミッション画面からタイトルへ戻る |
+| R キー | タイトル画面からランキング画面の表示 |
+| ESC キー | 実績一覧・設定画面・スキン選択画面・モード選択画面・ミッション画面・ランキング画面からタイトルへ戻る |
 | ↑ / ↓ キー | 設定画面で項目を選択 / モード選択画面でモードを切替 / ミッション画面でミッションを切替 |
 | ← / → キー | 設定画面で値を変更 / スキン選択画面でスキンを切替 |
 | スペースキー | スキン選択画面で装備（未解放スキンは装備不可） / モード選択画面でモードを選択 |
@@ -184,6 +185,7 @@ PC・モバイルの両方に対応。
   * `C : MISSIONS`
   * `S : SETTINGS`
   * `A : ACHIEVEMENTS`
+  * `R : RANKING`
 
 ## GAME OVER画面
 
@@ -191,6 +193,7 @@ PC・モバイルの両方に対応。
 * ハイスコア更新時は「NEW RECORD!」をパルス発光で表示
 * 今回のスコア・取得魚数を表示し、「SPACE TO RESTART」で再開
 * 衝突時は画面シェイクと赤いフラッシュオーバーレイを表示
+* Time Attackモードの場合のみ、表示内容を拡張する（後述「Time Attack」参照）。Classic・Hardでは上記の表示のまま変更しない
 
 ## ポーズ機能
 
@@ -270,25 +273,46 @@ PC・モバイルの両方に対応。
 ## ゲームモード（Game Modes Update）
 
 * ゲーム開始前にプレイスタイルを選べるモードシステムを搭載
-* モードは配列（`GAME_MODES`）でデータ管理し、各モードは `id` / `name` / `description` / `obstacleSpeedMultiplier` / `fishSpeedMultiplier` / `itemSpeedMultiplier` / `scoreMultiplier` を持つ。新しいモードを追加する場合は配列へ要素を追加するだけでよい
+* モードは配列（`GAME_MODES`）でデータ管理し、各モードは `id` / `name` / `description` / `obstacleSpeedMultiplier` / `fishSpeedMultiplier` / `itemSpeedMultiplier` / `scoreMultiplier` / `timeLimit` を持つ。新しいモードを追加する場合は配列へ要素を追加するだけでよい
+* `timeLimit` は秒単位の制限時間で、時間無制限のモードは `null` を設定する（将来の時間制限モード追加にも対応できる汎用フィールド）
 
-| モード名 | 説明 | 障害物速度 | 魚速度 | アイテム速度 | スコア倍率 |
-| --- | --- | --- | --- | --- | --- |
-| Classic | Standard gameplay. | ×1.0 | ×1.0 | ×1.0 | ×1.0 |
-| Hard | Faster and more challenging. | ×1.25 | ×1.15 | ×1.15 | ×1.5 |
+| モード名 | 説明 | 障害物速度 | 魚速度 | アイテム速度 | スコア倍率 | 制限時間 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Classic | Standard gameplay. | ×1.0 | ×1.0 | ×1.0 | ×1.0 | なし |
+| Hard | Faster and more challenging. | ×1.25 | ×1.15 | ×1.15 | ×1.5 | なし |
+| Time Attack | Score as much as possible before time runs out. | ×1.0 | ×1.0 | ×1.0 | ×1.0 | 60秒 |
 
-* Classicは全倍率が1.0倍のため、Version 1.4までの挙動と完全に一致する
+* Classicは全倍率が1.0倍のため、Version 1.4までの挙動と完全に一致する。Time AttackもClassicと同じ速度・スコア倍率（すべて×1.0）を使用し、Hard要素は適用しない
 * モード選択画面（`gameState = 'modeSelect'`、タイトル画面から M キーで遷移）
   * ↑ / ↓ キーでモードを切替表示
   * スペースキーで選択（即座に反映され、`localStorage` に保存）
-  * モード名・説明文・選択中表示（SELECTED）を表示
+  * モード名・説明文・選択中表示（SELECTED）を表示（Classic / Hard / Time Attackの3モードを表示）
   * ESC キー / M キーでタイトル画面へ戻る
 * レベル算出（`level`）と障害物速度の自動加速カーブ（スコアに応じて上昇する`obstacleSpeed`の基準値）は、スコア倍率を含まない素点（`rawScoreForLevel`）で判定する。これにより、Hardモードでもレベルアップの実時間ペースはClassicと一致し、スコア倍率の影響は表示スコア・ハイスコア・実績・マイルストーンにのみ及ぶ
 * Score Boostアイテムの2倍効果は `rawScoreForLevel` にも反映されるため、Version 1.4までと同様にレベルアップを加速させる（モードのスコア倍率とは独立）
 * ゲーム開始時に選択中のモードを適用し、プレイ中の変更はできない（モード選択画面はタイトルからのみ遷移可能なため）
-* HUD左上に「MODE: CLASSIC」または「MODE: HARD」を常時表示
+* HUD左上に「MODE: CLASSIC」「MODE: HARD」「MODE: TIME ATTACK」を常時表示
 * タイトル画面に現在選択中のモード名（例: 「MODE : CLASSIC」）を表示
 * 選択中のモードIDは `localStorage` に保存し、起動時に読み込む
+
+## Time Attack（Time Attack & Rankings Update）
+
+* `timeLimit` が設定されたモード（現時点ではTime Attackのみ）専用のタイマー機能
+* ゲーム開始時に `timeRemainingFrames = timeLimit × 60` を設定し、`playing` 中は1フレームごとに減算する
+* HUD左上に「TIME: 60」のように残り秒数（`Math.ceil(timeRemainingFrames / 60)`）を表示し、1秒ごとに60→59→58…と減っていく
+* 残り時間が0になると、障害物衝突によるゲームオーバーではなく「TIME UP!」として `gameover` に遷移する（`isTimeUp` フラグで区別）
+* Time Attack中に障害物へ衝突した場合（Shieldなし）は、通常通り「GAME OVER」として終了する（時間切れ以外の終了条件はClassic・Hardと同じ）
+* リザルト画面（`gameover`、Time Attackのときのみ）: 見出し（TIME UP! またはGAME OVER）に加えて SCORE / HIGH SCORE / FISH / RARE FISH / MODE を表示。Classic・Hardのリザルト画面表示は変更しない
+* Time Attackの終了時（時間切れ・衝突のいずれも）、そのランのスコアをTime Attack専用ランキングへ提出する
+
+## ランキング
+
+* Time Attack専用のランキングを上位5件、スコア降順で保持する
+* 保存内容: 各エントリは `score`（スコア）/ `date`（記録日、`YYYY-MM-DD`）を持つ
+* `localStorage`（`cat-game-timeattack-ranking`）にJSON配列として保存し、起動時に読み込む
+* ランキング画面（`gameState = 'ranking'`、タイトル画面から R キーで遷移）
+  * 「TIME ATTACK RANKING」見出しと1位〜5位（スコア・記録日）を表示。記録がない順位は「---」を表示
+  * ESC キー / R キーでタイトル画面へ戻る（一覧表示のみのため、上下キーでの選択操作はない）
 
 ## ミッションシステム（Challenge Missions Update）
 
@@ -335,6 +359,7 @@ PC・モバイルの両方に対応。
 | `cat-game-unlocked-skins` | 解放済みスキンID（カンマ区切り） |
 | `cat-game-selected-mode` | 選択中のゲームモードID |
 | `cat-game-missions` | ミッション関連データ（達成済みID・Hard自己最高スコア・Shield回避回数をJSONで保存） |
+| `cat-game-timeattack-ranking` | Time Attack専用ランキング上位5件（`score` / `date` の配列をJSONで保存） |
 
 ## パフォーマンス方針
 
